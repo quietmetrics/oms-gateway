@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wM-Bus Gateway - Radio Settings</title>
+    <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>wM-Bus Gateway Configuration</h1>
+        </header>
+        
+        <nav>
+            <a href="/">Dashboard</a>
+            <a href="/wifi">WiFi Config</a>
+            <a href="/whitelist">Whitelist</a>
+            <a href="/radio">Radio Settings</a>
+            <a href="/backend">Backend</a>
+        </nav>
+        
+        <main>
+            <section class="radio-settings">
+                <h2>Radio Settings</h2>
+                
+                <form id="radio-settings-form">
+                    <div class="form-group">
+                        <label for="frequency">Frequency (MHz):</label>
+                        <input type="number" id="frequency" name="frequency" step="0.01" value="868.95" min="860" max="930">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="data-rate">Data Rate (bps):</label>
+                        <input type="number" id="data-rate" name="data_rate" value="38400" min="1200" max="500000">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="signal-threshold">Signal Strength Threshold (dBm):</label>
+                        <input type="number" id="signal-threshold" name="signal_threshold" value="-90" min="-120" max="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="sync-quality">Sync Quality Threshold:</label>
+                        <input type="number" id="sync-quality" name="sync_quality_threshold" value="10" min="0" max="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agc-setting">AGC Setting:</label>
+                        <select id="agc-setting" name="agc_setting">
+                            <option value="auto">Auto</option>
+                            <option value="normal">Normal</option>
+                            <option value="low-power">Low Power</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit">Save Radio Settings</button>
+                </form>
+                
+                <div class="status" id="radio-status-message"></div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="/scripts/main.js"></script>
+    <script>
+        document.getElementById('radio-settings-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                frequency: parseFloat(document.getElementById('frequency').value),
+                data_rate: parseInt(document.getElementById('data-rate').value),
+                signal_threshold: parseInt(document.getElementById('signal-threshold').value),
+                sync_quality_threshold: parseInt(document.getElementById('sync-quality').value),
+                agc_setting: document.getElementById('agc-setting').value
+            };
+            
+            try {
+                const response = await fetch('/api/radio', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                if (response.ok) {
+                    document.getElementById('radio-status-message').innerHTML = 
+                        '<p class="success">Radio settings saved successfully!</p>';
+                } else {
+                    document.getElementById('radio-status-message').innerHTML = 
+                        '<p class="error">Error saving radio settings</p>';
+                }
+            } catch (error) {
+                document.getElementById('radio-status-message').innerHTML = 
+                    '<p class="error">Error: ' + error.message + '</p>';
+            }
+        });
+        
+        // Load current settings when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const response = await fetch('/api/radio');
+                if (response.ok) {
+                    const settings = await response.json();
+                    
+                    document.getElementById('frequency').value = settings.frequency || 868.95;
+                    document.getElementById('data-rate').value = settings.data_rate || 38400;
+                    document.getElementById('signal-threshold').value = settings.signal_threshold || -90;
+                    document.getElementById('sync-quality').value = settings.sync_quality_threshold || 10;
+                    document.getElementById('agc-setting').value = settings.agc_setting || 'auto';
+                }
+            } catch (error) {
+                console.error('Error loading radio settings:', error);
+            }
+        });
+    </script>
+</body>
+</html>

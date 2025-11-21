@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wM-Bus Gateway - Dashboard</title>
+    <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>wM-Bus Gateway Dashboard</h1>
+        </header>
+        
+        <nav>
+            <a href="/">Dashboard</a>
+            <a href="/wifi">WiFi Config</a>
+            <a href="/whitelist">Whitelist</a>
+            <a href="/radio">Radio Settings</a>
+            <a href="/backend">Backend</a>
+        </nav>
+        
+        <main>
+            <section class="status">
+                <h2>System Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span>WiFi Status:</span>
+                        <span id="wifi-status">Unknown</span>
+                    </div>
+                    <div class="status-item">
+                        <span>Backend Connection:</span>
+                        <span id="backend-status">Unknown</span>
+                    </div>
+                    <div class="status-item">
+                        <span>RF Reception:</span>
+                        <span id="rf-status">Active</span>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="devices">
+                <h2>Detected Devices</h2>
+                <div class="device-list">
+                    <table id="device-table">
+                        <thead>
+                            <tr>
+                                <th>Address</th>
+                                <th>Signal (dBm)</th>
+                                <th>Last Seen</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Devices will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            
+            <section class="statistics">
+                <h2>Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3 id="total-packets">0</h3>
+                        <p>Total Packets</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="whitelisted-devices">0</h3>
+                        <p>Whitelisted Devices</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="uptime">0s</h3>
+                        <p>Uptime</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="/scripts/main.js"></script>
+</body>
+</html>

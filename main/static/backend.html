@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wM-Bus Gateway - Backend Configuration</title>
+    <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>wM-Bus Gateway Configuration</h1>
+        </header>
+        
+        <nav>
+            <a href="/">Dashboard</a>
+            <a href="/wifi">WiFi Config</a>
+            <a href="/whitelist">Whitelist</a>
+            <a href="/radio">Radio Settings</a>
+            <a href="/backend">Backend</a>
+        </nav>
+        
+        <main>
+            <section class="backend-config">
+                <h2>Backend Configuration</h2>
+                
+                <form id="backend-form">
+                    <div class="form-group">
+                        <label for="backend-server">Backend Server URL:</label>
+                        <input type="url" id="backend-server" name="backend_server" 
+                               placeholder="https://example.com/api/data" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="api-key">API Key:</label>
+                        <input type="password" id="api-key" name="api_key" placeholder="Enter API key">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="batch-size">Batch Size:</label>
+                        <input type="number" id="batch-size" name="batch_size" value="10" min="1" max="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="forward-interval">Forward Interval (seconds):</label>
+                        <input type="number" id="forward-interval" name="forward_interval" value="60" min="1">
+                    </div>
+                    
+                    <button type="submit">Save Backend Configuration</button>
+                </form>
+                
+                <div class="status" id="backend-status-message"></div>
+                
+                <div class="test-section">
+                    <h3>Test Connection</h3>
+                    <button id="test-connection">Test Backend Connection</button>
+                    <div id="test-result"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="/scripts/main.js"></script>
+    <script>
+        document.getElementById('backend-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                backend_server: document.getElementById('backend-server').value,
+                api_key: document.getElementById('api-key').value,
+                batch_size: parseInt(document.getElementById('batch-size').value),
+                forward_interval: parseInt(document.getElementById('forward-interval').value)
+            };
+            
+            try {
+                const response = await fetch('/api/backend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                if (response.ok) {
+                    document.getElementById('backend-status-message').innerHTML = 
+                        '<p class="success">Backend configuration saved successfully!</p>';
+                } else {
+                    document.getElementById('backend-status-message').innerHTML = 
+                        '<p class="error">Error saving backend configuration</p>';
+                }
+            } catch (error) {
+                document.getElementById('backend-status-message').innerHTML = 
+                    '<p class="error">Error: ' + error.message + '</p>';
+            }
+        });
+        
+        document.getElementById('test-connection').addEventListener('click', async function() {
+            const serverUrl = document.getElementById('backend-server').value;
+            if (!serverUrl) {
+                document.getElementById('test-result').innerHTML = 
+                    '<p class="error">Please enter a backend server URL first</p>';
+                return;
+            }
+            
+            try {
+                document.getElementById('test-result').innerHTML = '<p>Testing connection...</p>';
+                
+                const response = await fetch('/api/test-backend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url: serverUrl })
+                });
+                
+                if (response.ok) {
+                    document.getElementById('test-result').innerHTML = 
+                        '<p class="success">Connection test successful!</p>';
+                } else {
+                    document.getElementById('test-result').innerHTML = 
+                        '<p class="error">Connection test failed</p>';
+                }
+            } catch (error) {
+                document.getElementById('test-result').innerHTML = 
+                    '<p class="error">Connection test failed: ' + error.message + '</p>';
+            }
+        });
+        
+        // Load current settings when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const response = await fetch('/api/backend');
+                if (response.ok) {
+                    const settings = await response.json();
+                    
+                    document.getElementById('backend-server').value = settings.backend_server || '';
+                    document.getElementById('batch-size').value = settings.batch_size || 10;
+                    document.getElementById('forward-interval').value = settings.forward_interval || 60;
+                }
+            } catch (error) {
+                console.error('Error loading backend settings:', error);
+            }
+        });
+    </script>
+</body>
+</html>

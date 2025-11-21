@@ -1,0 +1,86 @@
+# ESP-IDF Project Ignore File
+
+# Build outputs
+build/
+managed_components/
+components/_deps/
+
+# Firmware build artifacts
+firmware/*.bin
+firmware/*.map
+firmware/*.elf
+
+# Configuration files
+sdkconfig
+sdkconfig.old
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporary files
+*.tmp
+*~
+temp/
+
+# Python virtual environments (if using for scripts)
+venv/
+env/
+venv*/
+env*/
+
+# CMake build files
+CMakeFiles/
+CMakeCache.txt
+cmake_build/
+Makefile
+ninja.log
+.ninja_log
+
+# Eclipse CDT
+.settings/
+.cproject
+.project
+
+# PlatformIO
+.pio/
+.piolibdeps/
+.platformio/
+
+# Git temporary files
+.git/
+!.gitignore
+
+# Documentation outputs that might be generated
+docs/_build/
+*.pdf
+*.epub
+*.mobi
+
+# Custom component build directories (if any)
+main/build/
+main/*.a
+main/*.so
+
+# Debugging files
+*.gdb
+*.gdb_history
+
+# Sensitive files (credentials, etc.)
+**/secrets.h
+**/credentials.h
+**/config.json
+**/wifi_passwords.*
+
+# Output files that are not needed in version control
+*.out
+*.hex
+*.dmp
+*.bin.sha256
