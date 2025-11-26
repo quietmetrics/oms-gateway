@@ -22,115 +22,37 @@
 
 ### Phase 1: Basic RF Reception
 1. Set up ESP-IDF project for ESP32-C3
-2. Implement CC1101 SPI driver
-3. Configure CC1101 for wM-Bus frequencies (868MHz)
-4. Implement basic packet reception
-5. Add raw packet logging
+2. Implement CC1101 SPI driver from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
+3. Configure CC1101 for wM-Bus frequencies also from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
+4. Implement basic packet reception from "./Example wM Bus Libary"  + "./Research/Leitfaden.md"
 
 ### Phase 2: wM-Bus Protocol Handling
-1. Implement 3-of-6 decoding algorithm
-2. Validate frame structure
-3. Extract device address from frames
-4. Handle encrypted payloads (CRC may fail due to encryption)
+1. Implement 3-of-6 decoding algorithm from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
+2. Validate frame structure from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
+3. Extract device address (OMS-Adresse, M- + A-Feld) from frames from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
+4. Add raw valid packet logging (for the monitor described in Phase 4.4); "valid" = 3-of-6 decode OK + doppeltes L-Feld konsistent + CRC OK
 
 ### Phase 3: Filtering and Forwarding
 1. Implement address whitelist
-2. Create secure credential storage
-3. Implement backend communication (HTTP/MQTT)
-4. Forward only whitelisted device data
+   - Format: OMS-Adresse (M- + A-Feld), hex, Endianness wie im Frame
+2. Create credential storage (NVS, unverschlüsselt)
+3. Implement backend communication (HTTP/HTTPS POST /api/v1/uplink to configured host:port, Content-Type application/json, with TLS cert check)
+   - Payload example (ohne Timestamp): `{"gateway_id":"<from hostname>","radio_profile":"OMS-T-mode","rssi_dbm":-78.0,"lqi":92,"crc_ok":true,"device_address":"12345678","wmbus_frame_hex":"A55A6B..."}`
+   - RSSI in dBm aus CC1101-Register konvertieren; LQI direkt aus Statusbyte
+   - Backend target may be empty initially; when saved, perform immediate connectivity check
+4. Forward only whitelisted device data; kein Offline-Puffer, Pakete werden verworfen wenn Backend nicht erreichbar
+5. Show the status of the backend (Connected / Disconnected) in the WEB UI (next phase), status based on last transmission attempt
 
-### Phase 4: Configuration Interface
-1. Set up WiFi access point and station modes
-2. Create web configuration interface
-3. Implement settings storage (SSID, password, whitelist)
-4. Add real-time frame monitoring dashboard
-
-## Code Structure
-
-```
-project_root/
-├── main/
-│   ├── app_main.c                 # Main application entry point
-│   ├── cc1101/
-│   │   ├── cc1101_driver.c        # CC1101 SPI communication
-│   │   ├── cc1101_config.c        # CC1101 configuration
-│   │   └── cc1101.h               # CC1101 header
-│   ├── wmbus/
-│   │   ├── wmbus_protocol.c       # wM-Bus frame handling
-│   │   ├── three_of_six.c         # 3-of-6 decoding
-│   │   └── wmbus.h                # wM-Bus header
-│   ├── forwarder/
-│   │   ├── forwarder.c            # Backend communication
-│   │   └── forwarder.h            # Forwarder header
-│   ├── whitelist/
-│   │   ├── whitelist_manager.c    # Whitelist operations
-│   │   └── whitelist.h            # Whitelist header
-│   ├── config/
-│   │   ├── config_manager.c       # Configuration handling
-│   │   └── config.h               # Configuration header
-│   └── nvs_manager/
-│       ├── nvs_manager.c          # Centralized NVS management
-│       ├── nvs_manager.h          # NVS management API
-│       └── CMakeLists.txt         # Component build file
-├── components/
-├── CMakeLists.txt
-└── partitions.csv
-```
-
-## NVS Management Architecture
-
-### Problem
-Multiple modules were initializing NVS independently, causing handle errors and conflicts.
-
-### Solution
-Implemented centralized NVS manager with thread-safe operations and comprehensive error handling.
-
-### Key Changes
-1. **Single Initialization Point**: NVS initialization now happens only in app_main()
-2. **Safe API Functions**: All modules use safe wrapper functions for NVS operations
-3. **Thread Safety**: Mutex-protected access to NVS operations
-4. **Error Handling**: Comprehensive error checking and recovery
-5. **Monitoring**: Statistics and health check functions
-
-## Key Functions (Descriptive Names)
-
-### CC1101 Driver
-- `initialize_cc1101()` - Initialize SPI and configure CC1101
-- `configure_rf_parameters()` - Set frequency, data rate, modulation
-- `receive_packet()` - Receive raw packet from CC1101
-- `set_cc1101_mode()` - Switch between receive/transmit modes
-
-### wM-Bus Handler
-- `decode_three_of_six()` - Decode 3-of-6 encoded data
-- `extract_device_address()` - Extract address from wM-Bus frame
-- `validate_frame_structure()` - Check frame format
-- `parse_wmbus_frame()` - Parse complete frame
-
-### Forwarder
-- `forward_to_backend()` - Send data to backend server
-- `check_device_whitelist()` - Verify device is allowed to forward
-- `package_payload_for_forwarding()` - Prepare encrypted payload
-
-### Configuration Manager
-- `start_wifi_ap_mode()` - Start configuration access point
-- `save_wifi_credentials()` - Store WiFi credentials securely
-- `update_device_whitelist()` - Modify whitelisted devices
-- `get_radio_settings()` - Get current radio configuration
-
-## Data Flow
-```
-RF Reception -> Packet Validation -> 3-of-6 Decoding -> Address Extraction 
--> Whitelist Check -> Backend Forwarding (if whitelisted)
-```
-
-## Error Handling
-- Handle CRC failures due to encrypted packets
-- Graceful degradation when decryption fails
-- Radio configuration validation
-- Network connection fallback mechanisms
-
-## Security Considerations
-- Secure storage of WiFi credentials
-- Encrypted communication with backend
-- Proper validation of configuration inputs
-- Prevent unauthorized access to device configuration
+### Phase 4: Configuration Interface (Web UI)
+1. Set up WiFi access point and station modes (SSID = Hostname = OMS-Gateway-{CHIP_ID}, CHIP_ID hex, 8 chars if available); start in AP, then STA; fallback to AP if STA connection fails
+2. Create web configuration interface to configure:
+   1. WIFI settings
+   2. change Hostname
+   3. Whitelist elements (wM Bus Device addresses)
+   4. Backend URL (to send the recives and whitelisted packets to)
+3. Implement settings storage (SSID, password, whitelist, backend url, hostname, gateway_id derived from hostname)
+4. Add real-time frame monitoring dashboard to show ALL valid wM-Bus packes (show only the last recived packed from each device)
+   1. should show all relevant packet infos like rssi, lqi, lenght, addres, manufacturer; optional raw hex; CI not required
+   2. add a "add whitelist" button to easily add devices to whitelist
+   3. show local timestamp in monitor; no timestamp in backend payload
+5. Whitelist UI: table of hex device addresses with add/remove buttons; normalize input as hex string

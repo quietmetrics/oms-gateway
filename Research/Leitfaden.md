@@ -1,6 +1,6 @@
 # Leitfaden zur Implementierung eines Wireless‑M‑Bus‑Gateways mit dem CC1101 im T‑Modus
 
-Dieser Leitfaden beschreibt detailliert, wie ein Microcontroller‑basiertes Gateway aufgebaut wird, das drahtlose M‑Bus‑Telegramme im **T‑Modus** empfängt, dekodiert und weiterverarbeitet. Er verbindet die Informationen aus offiziellen Dokumenten (TI‑Applikationsnote AN067, EN 13757‑4), Hersteller‑Guides und existierenden Open‑Source‑Implementierungen. Das Ziel ist, die Konfiguration des **CC1101‑Transceivers** und die Verarbeitung der empfangenen Daten so aufzubereiten, dass ein vollständiges Gateway erstellt werden kann.
+Dieser Leitfaden beschreibt detailliert, wie ein Microcontroller‑basiertes Gateway aufgebaut wird, das drahtlose M‑Bus‑Telegramme im **T‑Modus** empfängt, dekodiert und weiterverarbeitet. Er verbindet die Informationen aus offiziellen Dokumenten (TI‑Applikationsnote AN067, EN 13757‑4), Hersteller‑Guides und existierenden Open‑Source‑Implementierungen. **Die Beschreibung ist auf die Beispielbibliothek in `Example wM Bus Libary` abgestimmt (ESP32 + CC1101, Arduino‑Framework, Techem‑Decoder).** Das Ziel ist, die Konfiguration des **CC1101‑Transceivers** und die Verarbeitung der empfangenen Daten so aufzubereiten, dass ein vollständiges Gateway erstellt werden kann.
 
 ## 1 Überblick über Wireless‑M‑Bus und T‑Modus
 
@@ -10,7 +10,7 @@ Der Wireless‑M‑Bus (wMBus) ist ein europäischer Standard (EN 13757‑4) f�
  - **T‑Mode** für häufige Übertragungen bei 868,95 MHz mit 100 kBaud. Der Modus existiert als **T1** (unidirektional: Meter sendet an Gateway) und **T2** (bidirektional: Meter öffnet nach dem Senden ein kurzes Empfangsfenster)[^ti_an067_modes].
 - **C‑Mode** (Compact) mit 50/100 kBaud NRZ‑Codierung.
 
-Dieser Leitfaden konzentriert sich auf den **T1‑Modus**, der die meisten batteriebetriebenen Wasser‑ und Wärmezähler nutzt. Dabei werden die Daten mit **3‑out‑of‑6‑Codierung** übertragen und ein spezielles Synchronwort (0x3D 54) verwendet[^ti_an067_sync].
+Dieser Leitfaden konzentriert sich auf den **T1‑Modus**, der die meisten batteriebetriebenen Wasser‑ und Wärmezähler nutzt. Dabei werden die Daten mit **3‑out‑of‑6‑Codierung** übertragen und ein spezielles Synchronwort genutzt (im Beispiel `0x54 0x3D`; entspricht dem in AN067 angegebenen 0x3D54, aber in Byte‑Reihenfolge getauscht)[^ti_an067_sync].
 
 ## 2 Hardware – Komponenten und Verdrahtung
 
@@ -43,95 +43,103 @@ Der CC1101 wird über SPI verbunden. Typische Zuordnung (wie in `esp‑multical2
 
 ### 3.1 Reset und Kalibrierung
 
-1. Schalte den Chip‑Select (CSN) auf LOW, warte einige Mikrosekunden und setze ihn wieder auf HIGH, um den CC1101 aus dem Sleep zu wecken.
-2. Sende das **SRES‑Strobe** (Reset) via SPI (`0x30`). Warte bis MISO LOW wird (Chip signalisiert Busy/Ready).
-3. Schreibe anschließend die Register gemäß Tabelle 1 (unten) und kalibriere den Frequenzsynthesizer durch das Senden eines **SCAL‑Strobes** (`0x33`).
-4. Wechsle den Chip abschließend in den RX‑Modus (Strobe `0x34`).
+1. CSN kurz toggeln, um den CC1101 zu wecken, dann das **SRES‑Strobe** (Reset, `0x30`) senden; in der Beispielbibliothek erfolgt dies in `cc1101_reset()`.
+2. Danach werden die Register gemäß Tabelle 1 geschrieben (`cc1101_initRegisters()`).
+3. Eine separate `SCAL`‑Kalibrierung wird im Beispiel **nicht** ausgelöst; die Autokalibrierung greift beim Wechsel Idle→RX (siehe `MCSM0=0x18`).
+4. Der Wechsel in den RX‑Modus erfolgt erst beim Start des Empfangs über `SRX` in `startReceiving()`.
 
 ### 3.2 Registereinstellungen
 
-Die folgenden Werte sind aus der TI‑App‑Note, dem Radiocrafts‑Beispiel und der `izar‑wmbus‑esp`‑Implementierung übernommen und für den wMBus‑T‑Modus getestet. Die Adressen sind hexadezimal; Werte in Klammern geben Kommentare an.
+Die folgenden Werte stammen direkt aus `cc1101_initRegisters()` des Beispielcodes und sind auf den wMBus‑T1‑Empfang abgestimmt. Adressen sind hexadezimal.
 
-**Tabelle 1 – Wichtige CC1101‑Register für wMBus T1**
+**Tabelle 1 – CC1101‑Registerwerte (wie im Beispiel implementiert)**
 
-| Register                |                Wert | Erläuterung                                                                  |
-| ----------------------- | ------------------: | ---------------------------------------------------------------------------- |
-| `IOCFG2`                |                0x06 | GDO2‑Pin: „Sync Word sent/received“ – erzeugt Interrupt bei Synchronisation. |
-| `IOCFG1`                |                0x2E | GDO1 tri‑state (nicht genutzt).                                              |
-| `IOCFG0`                |                0x00 | GDO0‑Pin: „Asserts when RX FIFO threshold is reached“; Interruptsignal.      |
-| `FIFOTHR`               |                0x07 | RX/TX‑FIFO‑Schwellwerte: RX schwelle bei 33 Byte.                            |
-| `SYNC1`                 |                0x3D | Hochwertiges Byte des Synchronworts (0x3D 54)[^ti_an067_sync].               |
-| `SYNC0`                 |                0x54 | Niederwertiges Byte des Synchronworts.                                       |
-| `PKTLEN`                |                0xFF | Maximale Packetlänge (wird durch Software angepasst).                        |
-| `PKTCTRL1`              |                0x00 | Keine Adress‑Überprüfung; frei wählbare Packet‑Länge.                        |
-| `PKTCTRL0`              |                0x00 | Datenformat Normal NRZ; Whitening/Manchester ausgeschaltet.                  |
-| `ADDR`                  |                0x00 | Adresse (nicht genutzt im wMBus).                                            |
-| `FSCTRL1`               |                0x08 | Frequenzsynthesizer‑Regelung.                                                |
-| `FSCTRL0`               |                0x00 | Frequenzabstimmung (Feinjustage).                                            |
-| `FREQ2`                 |                0x21 | Trägerfrequenz 868,95 MHz (kombiniert mit FREQ1/FREQ0).                      |
-| `FREQ1`                 |                0x65 | „.                                                                           |
-| `FREQ0`                 |                0x6A | „.                                                                           |
-| `MDMCFG4`               |                0x5C | Datenrate ≈ 100 kBaud und Filterbandbreite 203 kHz[^izar_register].          |
-| `MDMCFG3`               |                0x0F | Feinjustierung der Datenrate.                                                |
-| `MDMCFG2`               |                0x05 | 2‑FSK, kein Manchester‑Code, keine Datenwhitening.                           |
-| `MDMCFG1`               |                0x22 | Kanalbreite 200 kHz (CHSPC_E) und E/A‑Bit.                                   |
-| `MDMCFG0`               |                0xF8 | Kanalabstand 200 kHz.                                                        |
-| `DEVIATN`               |                0x50 | Frequenzabweichung ≈ 50 kHz.                                                 |
-| `MCSM1`                 |                0x30 | Nach dem Empfang in Idle gehen.                                              |
-| `MCSM0`                 |                0x18 | Calibrate when going from Idle to RX.                                        |
-| `FOCCFG`                |                0x16 | Frequenz‑Offset‑Kompensation.                                                |
-| `BSCFG`                 |                0x6C | Bit‑Synchronisationskonfiguration.                                           |
-| `AGCCTRL2`/`1`/`0`      |      0x43/0x40/0x91 | AGC‑Parameter.                                                               |
-| `FSCAL3` – `FSCAL0`     | 0xE9/0x0A/0x00/0x11 | Frequenz‑Kalibrierung.                                                       |
-| `TEST2`/`TEST1`/`TEST0` |      0x88/0x31/0x0B | Produktions‑ und Testregister.                                               |
+| Register                | Wert | Erläuterung (aus dem Code abgeleitet)                                   |
+| ----------------------- | ----:| ------------------------------------------------------------------------ |
+| `IOCFG2`                | 0x06 | GDO2: Sync‑Interrupt (endet Empfang/Frame).                             |
+| `IOCFG1`                | 0x2E | GDO1: Tristate.                                                         |
+| `IOCFG0`                | 0x00 | GDO0: FIFO‑Threshold Interrupt.                                         |
+| `FIFOTHR`               | 0x07 | FIFO‑Schwelle ca. 32 Byte (im Empfang wird erst auf 4 Byte, dann wieder erhöht). |
+| `SYNC1`                 | 0x54 | Sync‑Word High‑Byte (Sync‑Word insgesamt 0x54 3D).                      |
+| `SYNC0`                 | 0x3D | Sync‑Word Low‑Byte.                                                     |
+| `PKTLEN`                | 0xFF | Maximale Packetlänge, wird dynamisch angepasst.                         |
+| `PKTCTRL1`              | 0x00 | Keine Adressprüfung, Status‑Anhänge aus.                                |
+| `PKTCTRL0`              | 0x00 | Normal Mode, Manchester/Whitening aus; Length Mode wird umgeschaltet.   |
+| `ADDR`                  | 0x00 | Nicht genutzt.                                                          |
+| `CHANNR`                | 0x00 | Kanal 0.                                                                |
+| `FSCTRL1`               | 0x08 | Frequenzsynthese‑Regelung.                                              |
+| `FSCTRL0`               | 0x00 | Frequenzfeinabstimmung.                                                 |
+| `FREQ2`/`1`/`0`         |0x21/0x6B/0xD0| Trägerfrequenz im 868‑MHz‑Band.                                   |
+| `MDMCFG4`               | 0x5C | Datenrate/Bandbreite für 100 kBaud T‑Mode.                              |
+| `MDMCFG3`               | 0x04 | Datenraten‑Feineinstellung.                                             |
+| `MDMCFG2`               | 0x05 | 2‑FSK, kein Manchester, Sync‑Detektion ein.                             |
+| `MDMCFG1`               | 0x22 | Kanalbandbreite/Num. Preable Bytes.                                     |
+| `MDMCFG0`               | 0xF8 | Kanalabstand.                                                           |
+| `DEVIATN`               | 0x44 | Frequenzabweichung.                                                     |
+| `MCSM2`                 | 0x07 | Main State Machine Konfiguration.                                       |
+| `MCSM1`                 | 0x00 | Nach Empfang in IDLE gehen (ISR signalisiert Ende).                     |
+| `MCSM0`                 | 0x18 | Autokalibrierung Idle→RX.                                               |
+| `FOCCFG`                | 0x2E | Frequenz‑Offset‑Kompensation.                                           |
+| `BSCFG`                 | 0xBF | Bit‑Synchronisation.                                                    |
+| `AGCCTRL2`/`1`/`0`      |0x43/0x09/0xB5| AGC‑Parameter.                                                    |
+| `WOREVT1`/`0`           |0x87/0x6B| Wake‑On‑Radio Timer (hier statisch gesetzt).                        |
+| `WORCTRL`               | 0xFB | WOR‑Konfiguration.                                                      |
+| `FREND1`/`0`            |0xB6/0x10| Frontend‑Config.                                                     |
+| `FSCAL3`–`0`            |0xEA/0x2A/0x00/0x1F| Kalibrierung.                                                   |
+| `RCCTRL1`/`0`           |0x41/0x00| RC‑Oszillator.                                                      |
+| `FSTEST`                | 0x59 | Test‑Register (Empfehlung TI).                                         |
+| `PTEST`                 | 0x7F | Produktions‑Test.                                                       |
+| `AGCTEST`               | 0x3F | AGC‑Test.                                                               |
+| `TEST2`/`1`/`0`         |0x81/0x35/0x09| Weitere Test‑Register.                                           |
 
- Weitere Register (Wake‑on‑Radio, RC‑Oscillator etc.) können wie im Beispiel `cc1101_initRegisters()` gesetzt werden[^izar_register]. Es ist empfehlenswert, zunächst die im Projekt `esp32_cc1101_wmbus` definierten Werte zu übernehmen und nur bei Bedarf abzuweichen.
+Diese Tabelle spiegelt exakt die im Beispiel genutzten Werte wider. Abweichungen zu anderen Projekten sind möglich; wenn Register geändert werden, müssen auch die Annahmen der Empfangslogik überprüft werden.
 
-### 3.3 Umschalten zwischen Fixed‑ und Infinite‑Length
+### 3.3 Umschalten zwischen Fixed‑ und Infinite‑Length (wie im Beispiel umgesetzt)
 
-Das WMBus‑L‑Feld gibt die Länge des nachfolgenden Datenblocks an (ohne die L‑Bytes selbst). Da das CC1101‑Paket‑Modul nur bis 255 Byte unterstützt, muss bei langen Telegrammen der „Infinite Length“‑Modus verwendet werden. Vorgehensweise:
+Der Code arbeitet standardmäßig im **Infinite‑Length‑Modus**, bis die tatsächliche Länge aus dem L‑Feld bekannt ist. Ablauf (`rxFifoISR`):
 
-1. Nach Erkennung des Synchronworts werden die ersten 3 Byte aus dem RX‑FIFO gelesen. Diese drei Byte enthalten den 3‑out‑of‑6‑kodierten L‑Wert sowie eine Kopie davon. Decodiere sie (siehe Abschnitt 5).  
-2. Berechne die Gesamtzahl der zu empfangenden Datenbits aus dem decodierten L‑Wert (Länge + Preamblen + CRC).  
-3. Wenn die Länge < 255 Byte ist, schreibe den Wert in `PKTLEN` und setze `PKTCTRL0` auf Fixed‑Length (`PKTCTRL0 &= ~0x03`).  
-4. Ist sie ≥ 255 Byte, setze `PKTCTRL0` auf Infinite‑Length (`PKTCTRL0 |= 0x02`) und verwalte den Datenstrom im Mikrocontroller.  
+1. GDO0 löst bei 4 Byte FIFO‑Füllstand aus. Die ISR liest die ersten 3 Byte und decodiert den 3‑out‑of‑6‑codierten L‑Wert.  
+2. Aus `L` wird die paketweite Bytezahl (`packetSize` → `byteSize`) berechnet.  
+3. Wenn die Gesamtlänge < 256 Byte ist, wird `PKTLEN` auf diese Länge gesetzt und `PKTCTRL0` auf **Fixed Length** umgeschaltet. Ist sie größer, bleibt Infinite‑Length aktiv; `PKTLEN` wird auf den Rest modulo 256 gesetzt, um den Empfang fortzuführen.  
+4. Danach wird die FIFO‑Schwelle auf 32 Byte angehoben, damit der FIFO seltener ausgelesen werden muss.  
 
- Die Implementierungen in `esp32_cc1101_wmbus` und `izar‑wmbus‑esp` zeigen, wie man bei Empfang die Modi umschaltet und den FIFO rechtzeitig ausliest[^esp32_length_switch].
+Dieses Verhalten erklärt die Wertewechsel von `FIFOTHR` und `PKTCTRL0` in den Interrupt‑Handlern.
 
 ## 4 Empfangsablauf und FIFO‑Management
 
 Der CC1101 verfügt über einen 64‑Byte‑RX‑FIFO. Bei wMBus‑T‑Frames (typisch 100–300 Bytes nach Decodierung) muss der FIFO periodisch ausgelesen werden. Ein möglicher Ablauf:
 
-1. **Synchronwort‑Interrupt:** Konfiguriere GDO2 so, dass er beim Empfang des Sync‑Wortes ein Interrupt auslöst. Ab diesem Zeitpunkt beginnt der eigentliche Empfang.
-2. **Erste Bytes auslesen:** Lies die ersten drei Bytes, berechne die Packetlänge und wähle Fixed‑ oder Infinite‑Mode (Abschnitt 3.3).
-3. **FIFO‑Interrupt:** Setze den RX‑FIFO‑Threshold so (z. B. 33 Byte), dass ein Interrupt erzeugt wird, wenn genügend Daten im FIFO liegen. Im Interrupt‑Handler werden die verfügbaren Bytes ausgelesen und in einen Software‑Puffer kopiert.  
-4. **Überlauf vermeiden:** Kontrolliere das FIFO‑Status‑Byte (RXBYTES) regelmäßig. Wenn `RXFIFO_OVERFLOW` gesetzt wird, sende `SFRX` (Flush RX) und starte den Empfang neu.  
-5. **Ende des Frames:** Ist die erwartete Anzahl von Code‑Bits empfangen, setze den CC1101 in Idle und stoppe den Empfang.
+1. **GDO0 (FIFO‑Interrupt):** Startet bei 4 Byte im FIFO. Die ISR liest die ersten 3 Byte, decodiert das L‑Feld und wählt Fixed‑ oder Infinite‑Mode (Abschnitt 3.3). Danach wird die FIFO‑Schwelle auf 32 Byte gesetzt und der FIFO blockweise geleert.  
+2. **GDO2 (Packet‑Complete):** Signalisiert das Paketende. Die ISR liest die restlichen Bytes aus dem FIFO und markiert das Paket als vollständig.  
+3. **Überlauf vermeiden:** Der Code nutzt `SFRX` vor jedem Empfang, prüft aber den Status während des Empfangs nicht erneut. Bei Anpassungen sollte das RXBYTES‑Statusbit geprüft und bei Overflow ein Reset erfolgen.  
+4. **Ende des Frames:** Nach dem GDO2‑Interrupt wechselt die Hauptschleife in `stopReceiving`, setzt den Transceiver in IDLE und decodiert/prüft das Paket.
 
-Diese Ablaufsteuerung wird in `esp32_cc1101_wmbus` durch eine ISR realisiert, die jeweils ein Byte ausliest und in einen Ringpuffer schreibt. Anschließend wird im Hauptloop dekodiert und geprüft.
+Dieser Ablauf entspricht exakt den beiden ISR‑Funktionen `rxFifoISR` und `rxPacketRecvdISR` im Beispielcode; die eigentliche Decodierung passiert anschließend im Hauptloop.
 
 ## 5 3‑out‑of‑6‑Decodierung
 
-Im T‑Modus sind die Nutzdaten 3‑out‑of‑6 codiert. Jeder 6‑Bit‑Block enthält genau drei Einsen. Dadurch wird eine bessere Gleichstrombalance erreicht und der Empfänger kann die Taktsynchronisation aufrechterhalten. Die folgende Tabelle zeigt die Zuordnung von 4‑Bit‑Nibbles zu den 6‑Bit‑Codes[^ti_an067_sync]:
+Im T‑Modus sind die Nutzdaten 3‑out‑of‑6 codiert. Jeder 6‑Bit‑Block enthält genau drei Einsen. Dadurch wird eine bessere Gleichstrombalance erreicht und der Empfänger kann die Taktsynchronisation aufrechterhalten. Die Beispielbibliothek nutzt folgende Zuordnung (aus `3outof6.cpp`):
 
-| Nibble (hex) | Codebits (b5…b0) |
-| ------------ | ---------------- |
-| 0            | 110110           |
-| 1            | 110101           |
-| 2            | 110011           |
-| 3            | 101110           |
-| 4            | 101101           |
-| 5            | 101011           |
-| 6            | 100111           |
-| 7            | 011110           |
-| 8            | 011101           |
-| 9            | 011011           |
-| A            | 010111           |
-| B            | 001111           |
-| C            | 111100           |
-| D            | 111001           |
-| E            | 110111           |
-| F            | 101111           |
+| Nibble (hex) | Code (hex) | Codebits (b5…b0) |
+| ------------ | ---------- | ---------------- |
+| 0            | 0x16       | 010110           |
+| 1            | 0x0D       | 001101           |
+| 2            | 0x0E       | 001110           |
+| 3            | 0x0B       | 001011           |
+| 4            | 0x1C       | 011100           |
+| 5            | 0x19       | 011001           |
+| 6            | 0x1A       | 011010           |
+| 7            | 0x13       | 010011           |
+| 8            | 0x2C       | 101100           |
+| 9            | 0x25       | 100101           |
+| A            | 0x26       | 100110           |
+| B            | 0x23       | 100011           |
+| C            | 0x34       | 110100           |
+| D            | 0x31       | 110001           |
+| E            | 0x32       | 110010           |
+| F            | 0x29       | 101001           |
+
+Nicht abgedeckte 6‑Bit‑Werte werden beim Decodieren als `0xFF` markiert und führen zu `PACKET_CODING_ERROR`.
 
 ### 5.1 Decodieralgorithmus (Pseudocode)
 
@@ -155,25 +163,23 @@ Die Lookup‑Tabelle kann als 64‑Elemente‑Array implementiert werden, wie es
 
 ## 6 CRC‑Berechnung
 
-Für jeden Block (Block 1, 2 oder optionale Blöcke) wird eine 16‑Bit‑CRC berechnet. Das Polynom lautet \(x^{16} + x^{13} + x^{12} + x^{11} + x^{10} + x^8 + x^6 + x^5 + x^2 + 1\)[^ti_an067_frame] (hexadezimal 0x3D65). Die Berechnung erfolgt über den Datenblock *ohne* das CRC‑Feld; das Ergebnis wird bitweise invertiert. Ein Beispiel in C‑ähnlicher Form:
+Für jeden Block (Block 1, 2 oder optionale Blöcke) wird eine 16‑Bit‑CRC berechnet. Das Polynom lautet \(x^{16} + x^{13} + x^{12} + x^{11} + x^{10} + x^8 + x^6 + x^5 + x^2 + 1\)[^ti_an067_frame] (hexadezimal 0x3D65). Die Beispielbibliothek startet den CRC‑Akkumulator bei `0x0000`, schiebt pro Bit und vergleicht anschließend das bitweise invertierte Ergebnis mit den empfangenen CRC‑Bytes. Das entspricht `crc.cpp`:
 
 ```c
-uint16_t wmbus_crc(uint8_t *data, size_t length) {
-    uint16_t crc = 0xFFFF; // Startwert
-    for (size_t i = 0; i < length; i++) {
-        crc ^= ((uint16_t)data[i] << 8);
-        for (int j = 0; j < 8; j++) {
-            if (crc & 0x8000)
-                crc = (crc << 1) ^ 0x3D65;
-            else
-                crc <<= 1;
-        }
+// crcReg: aktueller CRC-Wert, crcData: Datenbyte
+uint16_t crcCalc(uint16_t crcReg, uint8_t crcData) {
+    for (int i = 0; i < 8; i++) {
+        if (((crcReg & 0x8000) >> 8) ^ (crcData & 0x80))
+            crcReg = (crcReg << 1) ^ 0x3D65;
+        else
+            crcReg = (crcReg << 1);
+        crcData <<= 1;
     }
-    return ~crc; // bitweise invertiert
+    return crcReg;
 }
 ```
 
-Nach dem Decoding wird die berechnete CRC mit den empfangenen CRC‑Bytes (nach Decodierung) verglichen.
+`decodeRXBytesTmode()` baut den CRC fortlaufend auf, erwartet im Telegramm die Zweierkomplement‑Darstellung (`~crc`) und bricht bei Abweichungen mit `PACKET_CRC_ERROR` ab.
 
 ## 7 Rahmenstruktur und Felder
 
@@ -193,9 +199,11 @@ Nach der 3‑out‑of‑6‑Decodierung lässt sich das Telegramm in Felder zerl
 
 Beim Parsen muss nach dem L‑Feld das C‑Feld, das M‑Feld und die Adresse extrahiert werden. In vielen Fällen genügt es, anhand des A‑Felds (Geräte‑ID) zu entscheiden, ob das Telegramm relevant ist. Der CI‑Code bestimmt das Protokoll der Nutzdaten (z. B. standardmäßige M‑Bus‑Rahmen, OMS, SML oder hersteller­spezifische Daten).
 
+**Beispielauswertung im Projekt:** `decodeTechemWaterMeters()` prüft ausschließlich auf Hersteller `0x6850` (Techem), nutzt `RXpacket[0] == 0x2f` als L‑Feld und interpretiert die Typ‑Bytes `0x72` (Kalt) bzw. `0x62` (Warm). Die Verbrauchswerte werden aus den Bytes 16/17 (bisheriger Wert) und 20/21 (aktueller Wert) gelesen, zu Kubikmetern skaliert und mit festen Geräte‑IDs (`cold_meter_id`, `warm_meter_id`) verglichen. Andere Hersteller/Protokolle werden nicht analysiert.
+
 ## 8 Umgang mit Verschlüsselung
 
-Viele wMBus‑Zähler verschlüsseln ihre Nutzdaten. Die häufigste Sicherheitsart ist **Mode 5**, der AES‑128‑CBC nutzt[^radiocrafts_security]. Der Schlüssel ist zähler­spezifisch und muss dem Gateway bekannt sein (oft in den Unterlagen des Versorgers aufgeführt). Bei Mode 5 wird vor der verschlüsselten Nutzlast ein 2‑Byte‑Verifikationswert eingefügt. Die Initialisierungs‑Vektoren werden aus Adresse, Hersteller und Nachrichtenzähler gebildet. Eine grobe Vorgehensweise zur Entschlüsselung:
+Viele wMBus‑Zähler verschlüsseln ihre Nutzdaten. Die Beispielbibliothek implementiert **keine Entschlüsselung** – sie erkennt lediglich Techem‑Telegramme an Hersteller/ID und wertet unverschlüsselte Felder aus. Für vollständige Gateways ist oft **Mode 5** (AES‑128‑CBC) relevant[^radiocrafts_security]. Der Schlüssel ist zähler­spezifisch und muss dem Gateway bekannt sein (oft in den Unterlagen des Versorgers aufgeführt). Bei Mode 5 wird vor der verschlüsselten Nutzlast ein 2‑Byte‑Verifikationswert eingefügt. Die Initialisierungs‑Vektoren werden aus Adresse, Hersteller und Nachrichtenzähler gebildet. Eine grobe Vorgehensweise zur Entschlüsselung:
 
 1. Nach dem Decoding der Daten den Bereich ab dem CI‑Feld identifizieren, der verschlüsselt ist. Das CI‑Feld zeigt die Verschlüsselungsart (z. B. 0x8A = encrypted application layer).  
 2. Den 2‑Byte‑Verifikationswert und die verschlüsselte Nutzlast in 16‑Byte‑Blöcke aufteilen. Fehlende Byte werden mit 0x2F aufgefüllt (Filler).  
@@ -209,11 +217,11 @@ Die Applikationsnote AN043 beschreibt daneben Mode 7 (AES‑CBC + CMAC) und Mod
 
 Angelehnt an die Open‑Source‑Implementierungen ergibt sich folgende modulare Architektur:
 
-1. **Transceiver‑Abstraktion:** Klasse/Modul, das SPI‑Zugriffe, Strobes und Registerzugriffe kapselt. Beispiele: `Transceiver` in ESPHome und `cc1101.cpp` im `esp32_cc1101_wmbus`‑Projekt.
-2. **RX‑Handler:** Interrupt‑Service‑Routine, die Daten aus dem CC1101‑FIFO ausliest und in einen Zwischenspeicher schreibt. Dabei werden Synchronisations‑ und FIFO‑Interrupts ausgewertet.
-3. **Decoder:** Modul, das 3‑out‑of‑6‑Decoding und CRC‑Prüfung durchführt und anschließend das Frame in Felder zerlegt. Fehlerhafte Telegramme (Fehler im Code oder CRC) werden verworfen.
-4. **Parser:** Interpretiert das CI‑Feld, entschlüsselt (falls nötig) und extrahiert die Daten (z. B. Verbrauchswerte). Konfiguration der unterstützten Zähler anhand ihrer ID.
-5. **Anwendungs‑Interface:** Übergibt die Messwerte an eine Anwendung (MQTT, Modbus, HTTP‑API etc.) oder speichert sie lokal. In ESPHome existiert hierfür ein Callback, das Sensor‑Objekte aktualisiert[^esphome_radio_component].
+1. **Transceiver‑Abstraktion (`cc1101.cpp/h`):** Kapselt SPI‑Zugriffe, Strobes und Registerwerte. Wird im Sketch direkt genutzt, keine Objekt‑Klasse.  
+2. **RX‑Handler (`startReceiving`/ISR):** Zwei Interrupts lesen den FIFO blockweise, schalten zwischen Infinite/Fixed Length um und markieren Paketende.  
+3. **Decoder (`3outof6.cpp`, `mbus_packet.cpp`):** 3‑out‑of‑6‑Decodierung, Paketgrößenberechnung und CRC‑Prüfung. Liefert `PACKET_OK`, `PACKET_CODING_ERROR` oder `PACKET_CRC_ERROR`.  
+4. **Parser/Anwendung (`main.cpp`):** Identifiziert Techem‑Telegramme an Hersteller 0x6850 und vergleicht Geräte‑IDs (`cold_meter_id`, `warm_meter_id`). Weitere Protokollinterpretation oder Entschlüsselung ist nicht implementiert.  
+5. **Erweiterungsschicht (optional):** Für MQTT/HTTP‑Weitergabe oder Entschlüsselung müsste zusätzlicher Code ergänzt werden; derzeit werden die Pakete nur über die serielle Konsole ausgegeben.
 
 ## 10 Herausforderungen und Tipps
 
