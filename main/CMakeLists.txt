@@ -1,0 +1,32 @@
+idf_component_register(
+    SRCS
+        main.c
+        cc1101/cc1101.c
+        wmbus/encoding_3of6.c
+        wmbus/packet.c
+        wmbus/rx.c
+        whitelist/whitelist.c
+        config/config_manager.c
+        forwarder/forwarder.c
+        web/web_server.c
+    INCLUDE_DIRS
+        .
+        cc1101
+        wmbus
+        whitelist
+        config
+        forwarder
+        web
+    REQUIRES
+        driver
+        esp_timer
+        esp_netif
+        log
+        nvs_flash
+        esp_http_client
+        esp-tls
+        json
+        esp_http_server
+        esp_wifi
+        esp_netif
+)

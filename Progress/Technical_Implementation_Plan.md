@@ -31,6 +31,7 @@
 2. Validate frame structure from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
 3. Extract device address (OMS-Adresse, M- + A-Feld) from frames from "./Example wM Bus Libary" + "./Research/Leitfaden.md"
 4. Add raw valid packet logging (for the monitor described in Phase 4.4); "valid" = 3-of-6 decode OK + doppeltes L-Feld konsistent + CRC OK
+5. RX-Handling wie im Example: GDO0 (FIFO) und GDO2 (Packet Done), zuerst 3 Bytes lesen und L-Feld 3-of-6 dekodieren, dann PKTLEN/PKTCTRL zwischen Infinite/Fixed umschalten, FIFO-Threshold anheben, restliche Bytes blockweise lesen; L-Feld nicht doppelt → verwerfen
 
 ### Phase 3: Filtering and Forwarding
 1. Implement address whitelist
@@ -39,9 +40,9 @@
 3. Implement backend communication (HTTP/HTTPS POST /api/v1/uplink to configured host:port, Content-Type application/json, with TLS cert check)
    - Payload example (ohne Timestamp): `{"gateway_id":"<from hostname>","radio_profile":"OMS-T-mode","rssi_dbm":-78.0,"lqi":92,"crc_ok":true,"device_address":"12345678","wmbus_frame_hex":"A55A6B..."}`
    - RSSI in dBm aus CC1101-Register konvertieren; LQI direkt aus Statusbyte
-   - Backend target may be empty initially; when saved, perform immediate connectivity check
-4. Forward only whitelisted device data; kein Offline-Puffer, Pakete werden verworfen wenn Backend nicht erreichbar
-5. Show the status of the backend (Connected / Disconnected) in the WEB UI (next phase), status based on last transmission attempt
+   - Backend target may be empty initially; when saved, perform immediate connectivity check (Backendstatus)
+4. Forward only whitelisted device data; kein Offline-Puffer/Max-Puffer=0, Pakete werden verworfen wenn Backend nicht erreichbar
+5. Show the status of the backend (Connected / Disconnected) in the WEB UI (next phase), status based on last transmission attempt; Gateway-ID = Hostname
 
 ### Phase 4: Configuration Interface (Web UI)
 1. Set up WiFi access point and station modes (SSID = Hostname = OMS-Gateway-{CHIP_ID}, CHIP_ID hex, 8 chars if available); start in AP, then STA; fallback to AP if STA connection fails
@@ -53,6 +54,6 @@
 3. Implement settings storage (SSID, password, whitelist, backend url, hostname, gateway_id derived from hostname)
 4. Add real-time frame monitoring dashboard to show ALL valid wM-Bus packes (show only the last recived packed from each device)
    1. should show all relevant packet infos like rssi, lqi, lenght, addres, manufacturer; optional raw hex; CI not required
-   2. add a "add whitelist" button to easily add devices to whitelist
+   2. add a "add whitelist" button to easily add devices to whitelist; Tabelle mit Löschen-Button pro Adresse
    3. show local timestamp in monitor; no timestamp in backend payload
 5. Whitelist UI: table of hex device addresses with add/remove buttons; normalize input as hex string
