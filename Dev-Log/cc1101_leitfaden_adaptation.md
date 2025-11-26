@@ -32,6 +32,11 @@ Der Leitfaden beschreibt eine vollständige Registerkonfiguration für wM‑Bus 
     - Warnungen erscheinen nur noch, wenn der CC1101 auch nach mehreren Recovery-Versuchen nicht in RX gelangt; erfolgreiche Re-Initialisierungen laufen still.
     - Unerwartete Fehler (SPI init, CC1101 Reset/Config, RX-Recovery-Fehlschlag) bleiben auf Fehlerniveau (`ESP_LOGE`), sodass echte Probleme weiterhin sichtbar sind.
 
+9. **SPI-Handshakes & Interrupt-Flow**
+    - Die SPI-Schicht zieht CS jetzt manuell, wartet wie im TI-Datenblatt beschrieben auf `MISO=LOW` und kapselt jede Transaktion mit `spi_device_acquire/release`. Damit spiegeln wir das Verhalten der Referenz-Bibliothek und stellen sicher, dass der CC1101 wirklich bereit ist, bevor wir ein Header-Byte senden.
+    - GDO0/GDO2 werden wie im Arduino-Beispiel genutzt: ein FreeRTOS-Queue sammelt FIFO- und Paket-Events, `receive_packet()` läuft blockierend auf diese Interrupts und liest den FIFO in kleinen Burst-Blöcken. Die bisherige Polling-Schleife (MARCSTATE/RXBYTES) entfällt, wodurch wir keine Race-Conditions mit WOR/Settling mehr erzeugen.
+    - Während der Headerphase halten wir den FIFO-Schwellenwert auf 4 Bytes, schalten nach erfolgreicher L-Feld-Dekodierung auf 32 Bytes und aktivieren den End-of-Packet-Interrupt. Das entspricht exakt dem Flow aus `Example wM Bus Library` und erfüllt die Empfehlungen aus dem TI-Leitfaden/Errata.
+
 ## Noch offen / Nächste Schritte
 1. **Interrupt-basierter RX-Handler**  
    Leitfaden Abschnitt 4 empfiehlt Sync‑ und FIFO‑Interrupts (GDO2/GDO0). Aktuell wird der FIFO noch im Polling gelesen. Die Integration einer ISR steht weiterhin aus.

@@ -16,6 +16,15 @@ A wireless M-Bus (wM-Bus) Gateway using ESP32-C3 and CC1101 RF transceiver to in
 - [Main_Goals.md](Progress/Main_Goals.md) - Original project goals and objectives
 - [Implementation_Checklist.md](Progress/Implementation_Checklist.md) - Progress tracking checklist
 
+### Research Notes (Research/)
+- [Leitfaden.md](Research/Leitfaden.md) - Detailed CC1101/wM-Bus implementation guide (register sets, FIFO handling, T-mode specifics)
+- [CC1101_Example_Research.md](Research/CC1101_Example_Research.md) - Expected CC1101 example structure and missing artefacts
+- [wM-Bus_Example_Research.md](Research/wM-Bus_Example_Research.md) - Protocol behaviour, sample frames, decoding expectations
+- `Analyse/` and other subfolders capture raw notes, datasheets, and vendor references used during development.
+
+### Development Log (Dev-Log/)
+A growing set of engineering journals describing issues, fixes, and decisions (e.g. `cc1101_leitfaden_adaptation.md`, `web_ui_improvement_plan.md`). Each entry documents what was changed, why, and any outstanding risks—useful when tracing regressions or revisiting design choices.
+
 ## Features
 
 - **RF Reception**: Capture wM-Bus packets via CC1101 transceiver on 868.95 MHz

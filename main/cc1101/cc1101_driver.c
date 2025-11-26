@@ -4,6 +4,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_rom_sys.h"
 #include <string.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -21,6 +23,114 @@ static spi_device_handle_t cc1101_spi_handle = NULL;
 #define CC1101_SPI_BURST_FLAG 0x40
 #define CC1101_STATE_RX 0x0D
 #define WMBUS_HEADER_ENCODED_LEN 3
+#define CC1101_RX_FIFO_START_THRESHOLD 0x00
+#define CC1101_RX_FIFO_ACTIVE_THRESHOLD 0x07
+#define CC1101_RX_SAFE_CHUNK 31
+#define CC1101_SPI_READY_TIMEOUT_US 5000
+
+typedef enum {
+    CC1101_GDO_EVENT_FIFO = 1,
+    CC1101_GDO_EVENT_PACKET = 2
+} cc1101_gdo_event_t;
+
+typedef struct {
+    uint8_t *buffer;
+    size_t buffer_size;
+    size_t bytes_read;
+    size_t expected_len;
+    size_t original_expected_len;
+    bool expected_len_known;
+    bool truncated;
+    bool packet_done;
+    bool complete;
+    bool error;
+} cc1101_rx_context_t;
+
+static QueueHandle_t cc1101_gdo_event_queue = NULL;
+static bool cc1101_isr_service_installed = false;
+static bool cc1101_gdo_handlers_attached = false;
+static volatile bool cc1101_rx_session_active = false;
+static cc1101_rx_context_t cc1101_rx_ctx = {0};
+
+static void cc1101_process_fifo_event(void);
+static void cc1101_process_packet_event(void);
+static esp_err_t cc1101_flush_rx_fifo(void);
+static bool wmbus_calculate_expected_encoded_length(const uint8_t *header, size_t *encoded_len_out);
+
+static void cc1101_trace_marcstate_sequence(const char *context, int samples, uint32_t delay_us)
+{
+    if (samples <= 0) {
+        return;
+    }
+
+    for (int i = 0; i < samples; i++) {
+        uint8_t state = cc1101_read_register(CC1101_MARCSTATE) & 0x1F;
+        ESP_LOGI(TAG, "[%s] settle[%d]=0x%02X", context ? context : "marc", i, state);
+        if (delay_us > 0) {
+            esp_rom_delay_us(delay_us);
+        }
+    }
+}
+
+static void cc1101_log_state_snapshot(const char *context, uint8_t observed_marcstate)
+{
+    uint8_t current_state = cc1101_read_register(CC1101_MARCSTATE) & 0x1F;
+    uint8_t rxbytes = cc1101_read_register(CC1101_RXBYTES);
+    uint8_t pktstatus = cc1101_read_register(CC1101_PKTSTATUS);
+    uint8_t mcsm2 = cc1101_read_register(CC1101_MCSM2);
+    uint8_t mcsm1 = cc1101_read_register(CC1101_MCSM1);
+
+    ESP_LOGW(TAG,
+             "[%s] MARCSTATE observed=0x%02X current=0x%02X RXBYTES=0x%02X PKTSTATUS=0x%02X MCSM2=0x%02X MCSM1=0x%02X",
+             context ? context : "diag",
+             observed_marcstate & 0x1F,
+             current_state,
+             rxbytes,
+             pktstatus,
+             mcsm2,
+             mcsm1);
+}
+
+static void cc1101_log_rf_registers(const char *context)
+{
+    uint8_t fsctrl1 = cc1101_read_register(CC1101_FSCTRL1);
+    uint8_t fsctrl0 = cc1101_read_register(CC1101_FSCTRL0);
+    uint8_t freq2 = cc1101_read_register(CC1101_FREQ2);
+    uint8_t freq1 = cc1101_read_register(CC1101_FREQ1);
+    uint8_t freq0 = cc1101_read_register(CC1101_FREQ0);
+    uint8_t mdmcfg4 = cc1101_read_register(CC1101_MDMCFG4);
+    uint8_t mdmcfg3 = cc1101_read_register(CC1101_MDMCFG3);
+    uint8_t mdmcfg2 = cc1101_read_register(CC1101_MDMCFG2);
+    uint8_t mdmcfg1 = cc1101_read_register(CC1101_MDMCFG1);
+    uint8_t mdmcfg0 = cc1101_read_register(CC1101_MDMCFG0);
+    uint8_t deviatn = cc1101_read_register(CC1101_DEVIATN);
+    uint8_t fscal3 = cc1101_read_register(CC1101_FSCAL3);
+    uint8_t fscal2 = cc1101_read_register(CC1101_FSCAL2);
+    uint8_t fscal1 = cc1101_read_register(CC1101_FSCAL1);
+    uint8_t fscal0 = cc1101_read_register(CC1101_FSCAL0);
+
+    ESP_LOGI(TAG, "[%s] FSCTRL1=0x%02X FSCTRL0=0x%02X FREQ=0x%02X%02X%02X",
+             context ? context : "rf",
+             fsctrl1,
+             fsctrl0,
+             freq2,
+             freq1,
+             freq0);
+    ESP_LOGI(TAG, "[%s] MDMCFG4=0x%02X MDMCFG3=0x%02X MDMCFG2=0x%02X MDMCFG1=0x%02X MDMCFG0=0x%02X DEVIATN=0x%02X",
+             context ? context : "rf",
+             mdmcfg4,
+             mdmcfg3,
+             mdmcfg2,
+             mdmcfg1,
+             mdmcfg0,
+             deviatn);
+    ESP_LOGI(TAG, "[%s] FSCAL3=0x%02X FSCAL2=0x%02X FSCAL1=0x%02X FSCAL0=0x%02X",
+             context ? context : "rf",
+             fscal3,
+             fscal2,
+             fscal1,
+             fscal0);
+}
 
 // Default wM-Bus configuration
 static cc1101_config_t default_wmbus_config = {
@@ -33,6 +143,29 @@ static cc1101_config_t default_wmbus_config = {
     .append_status = true
 };
 
+static inline void cc1101_chip_select(void)
+{
+    gpio_set_level(CC1101_CS_GPIO, 0);
+}
+
+static inline void cc1101_chip_deselect(void)
+{
+    gpio_set_level(CC1101_CS_GPIO, 1);
+}
+
+static bool cc1101_wait_for_miso_low(uint32_t timeout_us)
+{
+    uint32_t waited = 0;
+    while (gpio_get_level(CC1101_MISO_GPIO) == 1) {
+        if (waited >= timeout_us) {
+            return false;
+        }
+        esp_rom_delay_us(1);
+        waited++;
+    }
+    return true;
+}
+
 /**
  * @brief Initialize SPI for CC1101 communication
  * 
@@ -41,6 +174,16 @@ static cc1101_config_t default_wmbus_config = {
 static esp_err_t init_spi(void)
 {
     esp_err_t ret;
+
+    gpio_config_t cs_cfg = {
+        .pin_bit_mask = 1ULL << CC1101_CS_GPIO,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cs_cfg);
+    cc1101_chip_deselect();
 
     // Configuration for the SPI bus
     spi_bus_config_t buscfg = {
@@ -58,7 +201,7 @@ static esp_err_t init_spi(void)
         .address_bits = 0,
         .mode = CC1101_SPI_MODE,
         .clock_speed_hz = CC1101_SPI_CLOCK_SPEED_HZ,
-        .spics_io_num = CC1101_CS_GPIO,
+        .spics_io_num = -1,
         .queue_size = 7,
         .flags = SPI_DEVICE_NO_DUMMY,  // CC1101 doesn't need dummy cycles
     };
@@ -80,6 +223,97 @@ static esp_err_t init_spi(void)
 
     ESP_LOGD(TAG, "SPI initialized successfully for CC1101");
     return ESP_OK;
+}
+
+static void IRAM_ATTR cc1101_gdo_isr(void *arg)
+{
+    uint32_t event = (uint32_t)arg;
+    BaseType_t hp_task_woken = pdFALSE;
+    if (cc1101_gdo_event_queue) {
+        xQueueSendFromISR(cc1101_gdo_event_queue, &event, &hp_task_woken);
+    }
+    if (hp_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+static esp_err_t cc1101_prepare_gdo_resources(void)
+{
+    gpio_config_t gdo_cfg = {
+        .pin_bit_mask = (1ULL << CC1101_GDO0_GPIO) | (1ULL << CC1101_GDO2_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&gdo_cfg);
+
+    if (!cc1101_gdo_event_queue) {
+        cc1101_gdo_event_queue = xQueueCreate(32, sizeof(uint32_t));
+        if (!cc1101_gdo_event_queue) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    if (!cc1101_isr_service_installed) {
+        esp_err_t ret = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+            return ret;
+        }
+        cc1101_isr_service_installed = true;
+    }
+
+    if (!cc1101_gdo_handlers_attached) {
+        gpio_isr_handler_add(CC1101_GDO0_GPIO, cc1101_gdo_isr, (void *)CC1101_GDO_EVENT_FIFO);
+        gpio_isr_handler_add(CC1101_GDO2_GPIO, cc1101_gdo_isr, (void *)CC1101_GDO_EVENT_PACKET);
+        cc1101_gdo_handlers_attached = true;
+    }
+
+    gpio_intr_disable(CC1101_GDO0_GPIO);
+    gpio_intr_disable(CC1101_GDO2_GPIO);
+    return ESP_OK;
+}
+
+static inline void cc1101_enable_gdo_interrupts(void)
+{
+    if (cc1101_gdo_event_queue) {
+        xQueueReset(cc1101_gdo_event_queue);
+    }
+    gpio_set_intr_type(CC1101_GDO0_GPIO, GPIO_INTR_POSEDGE);
+    gpio_set_intr_type(CC1101_GDO2_GPIO, GPIO_INTR_NEGEDGE);
+    gpio_intr_enable(CC1101_GDO0_GPIO);
+    gpio_intr_enable(CC1101_GDO2_GPIO);
+}
+
+static inline void cc1101_disable_gdo_interrupts(void)
+{
+    gpio_intr_disable(CC1101_GDO0_GPIO);
+    gpio_intr_disable(CC1101_GDO2_GPIO);
+}
+
+static void cc1101_reset_rx_context(uint8_t *buffer, size_t buffer_size)
+{
+    memset(&cc1101_rx_ctx, 0, sizeof(cc1101_rx_ctx));
+    cc1101_rx_ctx.buffer = buffer;
+    cc1101_rx_ctx.buffer_size = buffer_size;
+}
+
+static void cc1101_process_gdo_event(cc1101_gdo_event_t event)
+{
+    if (!cc1101_rx_session_active || cc1101_rx_ctx.error) {
+        return;
+    }
+
+    switch (event) {
+        case CC1101_GDO_EVENT_FIFO:
+            cc1101_process_fifo_event();
+            break;
+        case CC1101_GDO_EVENT_PACKET:
+            cc1101_process_packet_event();
+            break;
+        default:
+            break;
+    }
 }
 
 /**
@@ -135,7 +369,15 @@ static esp_err_t cc1101_spi_transfer(uint8_t header, const uint8_t *data_out, ui
         .rx_buffer = data_in ? rx_buffer : NULL,
     };
 
-    esp_err_t ret = spi_device_transmit(cc1101_spi_handle, &t);
+    spi_device_acquire_bus(cc1101_spi_handle, portMAX_DELAY);
+    cc1101_chip_select();
+    if (!cc1101_wait_for_miso_low(CC1101_SPI_READY_TIMEOUT_US)) {
+        ESP_LOGW(TAG, "Timeout waiting for CC1101 ready after CS assert");
+    }
+
+    esp_err_t ret = spi_device_polling_transmit(cc1101_spi_handle, &t);
+    cc1101_chip_deselect();
+    spi_device_release_bus(cc1101_spi_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "SPI transfer failed: %s", esp_err_to_name(ret));
         return ret;
@@ -146,6 +388,125 @@ static esp_err_t cc1101_spi_transfer(uint8_t header, const uint8_t *data_out, ui
     }
 
     return ESP_OK;
+}
+
+static void cc1101_process_fifo_event(void)
+{
+    if (!cc1101_rx_session_active || cc1101_rx_ctx.complete || cc1101_rx_ctx.error) {
+        return;
+    }
+
+    while (true) {
+        uint8_t rxbytes = cc1101_read_register(CC1101_RXBYTES);
+        uint8_t available = rxbytes & 0x7F;
+        if (available == 0) {
+            break;
+        }
+
+        size_t chunk = available;
+        if (!cc1101_rx_ctx.expected_len_known && cc1101_rx_ctx.bytes_read < WMBUS_HEADER_ENCODED_LEN) {
+            size_t needed = WMBUS_HEADER_ENCODED_LEN - cc1101_rx_ctx.bytes_read;
+            if (chunk > needed) {
+                chunk = needed;
+            }
+        } else if (cc1101_rx_ctx.expected_len_known) {
+            if (cc1101_rx_ctx.bytes_read >= cc1101_rx_ctx.expected_len) {
+                break;
+            }
+            size_t remaining = cc1101_rx_ctx.expected_len - cc1101_rx_ctx.bytes_read;
+            if (chunk > remaining) {
+                chunk = remaining;
+            }
+        }
+
+        if (chunk > CC1101_RX_SAFE_CHUNK) {
+            chunk = CC1101_RX_SAFE_CHUNK;
+        }
+
+        if (cc1101_rx_ctx.bytes_read + chunk > cc1101_rx_ctx.buffer_size) {
+            chunk = cc1101_rx_ctx.buffer_size - cc1101_rx_ctx.bytes_read;
+            cc1101_rx_ctx.truncated = true;
+        }
+
+        if (chunk == 0) {
+            break;
+        }
+
+        if (cc1101_spi_transfer(cc1101_build_header(CC1101_RXFIFO, true, true),
+                                NULL,
+                                cc1101_rx_ctx.buffer + cc1101_rx_ctx.bytes_read,
+                                chunk) != ESP_OK) {
+            cc1101_rx_ctx.error = true;
+            return;
+        }
+        cc1101_rx_ctx.bytes_read += chunk;
+
+        if (!cc1101_rx_ctx.expected_len_known && cc1101_rx_ctx.bytes_read >= WMBUS_HEADER_ENCODED_LEN) {
+            size_t computed_encoded = 0;
+            if (!wmbus_calculate_expected_encoded_length(cc1101_rx_ctx.buffer, &computed_encoded)) {
+                ESP_LOGD(TAG, "Invalid wM-Bus header, discarding frame");
+                cc1101_flush_rx_fifo();
+                cc1101_rx_ctx.bytes_read = 0;
+                cc1101_rx_ctx.expected_len_known = false;
+                cc1101_rx_ctx.truncated = false;
+                cc1101_write_register(CC1101_FIFOTHR, CC1101_RX_FIFO_START_THRESHOLD);
+                continue;
+            }
+            cc1101_rx_ctx.original_expected_len = computed_encoded;
+            cc1101_rx_ctx.expected_len = computed_encoded;
+            if (cc1101_rx_ctx.expected_len > cc1101_rx_ctx.buffer_size) {
+                cc1101_rx_ctx.expected_len = cc1101_rx_ctx.buffer_size;
+                cc1101_rx_ctx.truncated = true;
+            }
+            cc1101_rx_ctx.expected_len_known = true;
+            cc1101_write_register(CC1101_FIFOTHR, CC1101_RX_FIFO_ACTIVE_THRESHOLD);
+        }
+
+        if (cc1101_rx_ctx.expected_len_known && cc1101_rx_ctx.bytes_read >= cc1101_rx_ctx.expected_len) {
+            cc1101_rx_ctx.complete = true;
+            break;
+        }
+
+        if (chunk < available) {
+            continue;
+        }
+    }
+
+    if (cc1101_rx_ctx.packet_done && cc1101_rx_ctx.expected_len_known &&
+        cc1101_rx_ctx.bytes_read >= cc1101_rx_ctx.expected_len) {
+        cc1101_rx_ctx.complete = true;
+    }
+}
+
+static void cc1101_process_packet_event(void)
+{
+    if (!cc1101_rx_session_active) {
+        return;
+    }
+    cc1101_rx_ctx.packet_done = true;
+    cc1101_process_fifo_event();
+}
+
+static void cc1101_discard_remaining_fifo(size_t remaining)
+{
+    uint8_t discard[CC1101_FIFO_SIZE];
+    while (remaining > 0) {
+        uint8_t avail = cc1101_read_register(CC1101_RXBYTES) & 0x7F;
+        if (avail == 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+        size_t drop = remaining;
+        if (drop > avail) {
+            drop = avail;
+        }
+        if (drop > CC1101_FIFO_SIZE) {
+            drop = CC1101_FIFO_SIZE;
+        }
+        cc1101_spi_transfer(cc1101_build_header(CC1101_RXFIFO, true, true),
+                            NULL, discard, drop);
+        remaining -= drop;
+    }
 }
 
 static esp_err_t cc1101_flush_rx_fifo(void)
@@ -162,39 +523,8 @@ static esp_err_t cc1101_flush_rx_fifo(void)
 
     ret = cc1101_send_command_strobe(CC1101_SRX);
     if (ret == ESP_OK) {
+        cc1101_trace_marcstate_sequence("srx-after-flush", 8, 200);
         vTaskDelay(pdMS_TO_TICKS(1));
-    }
-    return ret;
-}
-
-static esp_err_t cc1101_recover_rx_state(void)
-{
-    for (int attempt = 0; attempt < 3; attempt++) {
-        esp_err_t ret = cc1101_flush_rx_fifo();
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "RX flush failed (%s)", esp_err_to_name(ret));
-            continue;
-        }
-        vTaskDelay(pdMS_TO_TICKS(2));
-        uint8_t state = cc1101_read_register(CC1101_MARCSTATE) & 0x1F;
-        if (state == CC1101_STATE_RX) {
-            return ESP_OK;
-        }
-    }
-
-    ESP_LOGW(TAG, "Reinitializing CC1101 to recover RX mode");
-    cc1101_send_command_strobe(CC1101_SRES);
-    vTaskDelay(pdMS_TO_TICKS(5));
-
-    esp_err_t ret = configure_rf_parameters(&default_wmbus_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to reconfigure CC1101: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ret = cc1101_send_command_strobe(CC1101_SRX);
-    if (ret == ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(2));
     }
     return ret;
 }
@@ -239,6 +569,12 @@ esp_err_t initialize_cc1101(void)
     ret = init_spi();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPI");
+        return ret;
+    }
+
+    ret = cc1101_prepare_gdo_resources();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to prepare GDO resources: %s", esp_err_to_name(ret));
         return ret;
     }
 
@@ -307,40 +643,49 @@ esp_err_t configure_rf_parameters(const cc1101_config_t *config)
         {CC1101_IOCFG1, 0x2E},
         {CC1101_IOCFG0, 0x00},
         {CC1101_FIFOTHR, 0x07},
-        {CC1101_SYNC1, 0x3D},
-        {CC1101_SYNC0, 0x54},
+        {CC1101_SYNC1, 0x54},
+        {CC1101_SYNC0, 0x3D},
         {CC1101_PKTLEN, 0xFF},
         {CC1101_PKTCTRL1, 0x00},
         {CC1101_PKTCTRL0, 0x00},
         {CC1101_ADDR, 0x00},
+        {CC1101_CHANNR, 0x00},
         {CC1101_FSCTRL1, 0x08},
         {CC1101_FSCTRL0, 0x00},
         {CC1101_FREQ2, freq2},
         {CC1101_FREQ1, freq1},
         {CC1101_FREQ0, freq0},
         {CC1101_MDMCFG4, 0x5C},
-        {CC1101_MDMCFG3, 0x0F},
+        {CC1101_MDMCFG3, 0x04},
         {CC1101_MDMCFG2, 0x05},
         {CC1101_MDMCFG1, 0x22},
         {CC1101_MDMCFG0, 0xF8},
-        {CC1101_DEVIATN, 0x50},
+        {CC1101_DEVIATN, 0x44},
         {CC1101_MCSM2, 0x07},
-        {CC1101_MCSM1, 0x30},
+        {CC1101_MCSM1, 0x00},
         {CC1101_MCSM0, 0x18},
-        {CC1101_FOCCFG, 0x16},
-        {CC1101_BSCFG, 0x6C},
+        {CC1101_FOCCFG, 0x2E},
+        {CC1101_BSCFG, 0xBF},
         {CC1101_AGCCTRL2, 0x43},
-        {CC1101_AGCCTRL1, 0x40},
-        {CC1101_AGCCTRL0, 0x91},
-        {CC1101_FREND1, 0x56},
+        {CC1101_AGCCTRL1, 0x09},
+        {CC1101_AGCCTRL0, 0xB5},
+        {CC1101_WOREVT1, 0x87},
+        {CC1101_WOREVT0, 0x6B},
+        {CC1101_WORCTRL, 0xFB},
+        {CC1101_FREND1, 0xB6},
         {CC1101_FREND0, 0x10},
-        {CC1101_FSCAL3, 0xE9},
-        {CC1101_FSCAL2, 0x0A},
+        {CC1101_FSCAL3, 0xEA},
+        {CC1101_FSCAL2, 0x2A},
         {CC1101_FSCAL1, 0x00},
-        {CC1101_FSCAL0, 0x11},
-        {CC1101_TEST2, 0x88},
-        {CC1101_TEST1, 0x31},
-        {CC1101_TEST0, 0x0B},
+        {CC1101_FSCAL0, 0x1F},
+        {CC1101_RCCTRL1, 0x41},
+        {CC1101_RCCTRL0, 0x00},
+        {CC1101_FSTEST, 0x59},
+        {CC1101_PTEST, 0x7F},
+        {CC1101_AGCTEST, 0x3F},
+        {CC1101_TEST2, 0x81},
+        {CC1101_TEST1, 0x35},
+        {CC1101_TEST0, 0x09},
     };
 
     for (size_t i = 0; i < sizeof(settings) / sizeof(settings[0]); i++) {
@@ -358,6 +703,7 @@ esp_err_t configure_rf_parameters(const cc1101_config_t *config)
     }
     vTaskDelay(pdMS_TO_TICKS(1));
 
+    cc1101_log_rf_registers("configure-rf");
     ESP_LOGD(TAG, "RF parameters configured successfully");
     return ESP_OK;
 }
@@ -374,128 +720,93 @@ esp_err_t receive_packet(uint8_t *buffer, size_t buffer_size, size_t *packet_siz
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint32_t start_time = xTaskGetTickCount();
-    uint32_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
-    size_t bytes_read = 0;
-    size_t expected_encoded_len = 0;
-    size_t original_expected_len = 0;
-    bool expected_len_known = false;
-    bool truncated = false;
-    
-    while ((xTaskGetTickCount() - start_time) < timeout_ticks) {
-        uint8_t marcstate = cc1101_read_register(CC1101_MARCSTATE) & 0x1F;
-        if (marcstate != CC1101_STATE_RX) {
-            ESP_LOGD(TAG, "CC1101 not in RX mode, current state: 0x%02X", marcstate);
-            if (cc1101_recover_rx_state() != ESP_OK) {
-                ESP_LOGE(TAG, "Unable to recover RX mode");
-                vTaskDelay(pdMS_TO_TICKS(50));
-                continue;
+    if (!cc1101_gdo_event_queue) {
+        ESP_LOGE(TAG, "GDO event queue not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    cc1101_reset_rx_context(buffer, buffer_size);
+    *packet_size = 0;
+
+    esp_err_t ret = cc1101_write_register(CC1101_FIFOTHR, CC1101_RX_FIFO_START_THRESHOLD);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set start FIFO threshold");
+        return ret;
+    }
+
+    ret = cc1101_write_register(CC1101_PKTCTRL0, 0x02); // Infinite packet length mode
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable infinite length mode");
+        return ret;
+    }
+
+    cc1101_enable_gdo_interrupts();
+    cc1101_rx_session_active = true;
+
+    ret = cc1101_flush_rx_fifo();
+    if (ret != ESP_OK) {
+        cc1101_disable_gdo_interrupts();
+        cc1101_rx_session_active = false;
+        return ret;
+    }
+
+    ret = cc1101_send_command_strobe(CC1101_SRX);
+    if (ret != ESP_OK) {
+        cc1101_disable_gdo_interrupts();
+        cc1101_rx_session_active = false;
+        return ret;
+    }
+
+    TickType_t start_ticks = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    esp_err_t wait_status = ESP_ERR_TIMEOUT;
+
+    while (true) {
+        if (cc1101_rx_ctx.complete || cc1101_rx_ctx.error) {
+            wait_status = ESP_OK;
+            break;
+        }
+
+        TickType_t elapsed = xTaskGetTickCount() - start_ticks;
+        if (elapsed >= timeout_ticks) {
+            break;
+        }
+
+        TickType_t remaining = timeout_ticks - elapsed;
+        uint32_t event = 0;
+        if (xQueueReceive(cc1101_gdo_event_queue, &event, remaining) == pdTRUE) {
+            cc1101_process_gdo_event((cc1101_gdo_event_t)event);
+            while (uxQueueMessagesWaiting(cc1101_gdo_event_queue) > 0) {
+                if (xQueueReceive(cc1101_gdo_event_queue, &event, 0) == pdTRUE) {
+                    cc1101_process_gdo_event((cc1101_gdo_event_t)event);
+                } else {
+                    break;
+                }
             }
-        }
-
-        uint8_t rxbytes = cc1101_read_register(CC1101_RXBYTES);
-        uint8_t available = rxbytes & 0x7F;
-        if (available == 0) {
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
-        }
-
-        size_t chunk = available;
-        if (chunk > CC1101_FIFO_SIZE) {
-            chunk = CC1101_FIFO_SIZE;
-        }
-
-        if (!expected_len_known && bytes_read < WMBUS_HEADER_ENCODED_LEN) {
-            size_t needed = WMBUS_HEADER_ENCODED_LEN - bytes_read;
-            if (chunk > needed) {
-                chunk = needed;
-            }
-        } else if (expected_len_known) {
-            if (bytes_read >= expected_encoded_len) {
-                break;
-            }
-            size_t remaining = expected_encoded_len - bytes_read;
-            if (chunk > remaining) {
-                chunk = remaining;
-            }
-        }
-
-        if (bytes_read + chunk > buffer_size) {
-            chunk = buffer_size - bytes_read;
-            truncated = true;
-        }
-
-        if (chunk == 0) {
-            uint8_t discard[CC1101_FIFO_SIZE];
-            size_t drop = available;
-            if (drop > CC1101_FIFO_SIZE) {
-                drop = CC1101_FIFO_SIZE;
-            }
-            cc1101_spi_transfer(cc1101_build_header(CC1101_RXFIFO, true, true),
-                                NULL, discard, drop);
-            continue;
-        }
-
-        esp_err_t ret = cc1101_spi_transfer(cc1101_build_header(CC1101_RXFIFO, true, true),
-                                            NULL, buffer + bytes_read, chunk);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to read packet data");
-            return ret;
-        }
-        bytes_read += chunk;
-
-        if (!expected_len_known && bytes_read >= WMBUS_HEADER_ENCODED_LEN) {
-            size_t computed_encoded = 0;
-            if (!wmbus_calculate_expected_encoded_length(buffer, &computed_encoded)) {
-                ESP_LOGD(TAG, "Invalid wM-Bus header, discarding frame");
-                cc1101_flush_rx_fifo();
-                bytes_read = 0;
-                expected_len_known = false;
-                truncated = false;
-                continue;
-            }
-            original_expected_len = computed_encoded;
-            expected_encoded_len = computed_encoded;
-            if (expected_encoded_len > buffer_size) {
-                expected_encoded_len = buffer_size;
-                truncated = true;
-            }
-            expected_len_known = true;
-        }
-
-        if (expected_len_known && bytes_read >= expected_encoded_len) {
+        } else {
             break;
         }
     }
 
-    if (!expected_len_known || bytes_read == 0) {
-    ESP_LOGD(TAG, "Timeout waiting for packet (timeout: %"PRIu32" ms)", timeout_ms);
-        return ESP_ERR_TIMEOUT;
+    cc1101_disable_gdo_interrupts();
+    cc1101_rx_session_active = false;
+
+    if (cc1101_rx_ctx.error) {
+        ESP_LOGE(TAG, "RX session aborted due to error");
+        return ESP_FAIL;
     }
 
-    if (truncated && original_expected_len > expected_encoded_len) {
-        size_t remaining = original_expected_len - expected_encoded_len;
-        uint8_t discard[CC1101_FIFO_SIZE];
-        while (remaining > 0) {
-            uint8_t avail = cc1101_read_register(CC1101_RXBYTES) & 0x7F;
-            if (avail == 0) {
-                vTaskDelay(pdMS_TO_TICKS(1));
-                continue;
-            }
-            size_t drop = remaining;
-            if (drop > avail) {
-                drop = avail;
-            }
-            if (drop > CC1101_FIFO_SIZE) {
-                drop = CC1101_FIFO_SIZE;
-            }
-            cc1101_spi_transfer(cc1101_build_header(CC1101_RXFIFO, true, true),
-                                NULL, discard, drop);
-            remaining -= drop;
-        }
+    if (!cc1101_rx_ctx.complete) {
+        ESP_LOGD(TAG, "Timeout waiting for packet (timeout: %"PRIu32" ms)", timeout_ms);
+        return wait_status;
     }
 
-    *packet_size = bytes_read;
+    if (cc1101_rx_ctx.truncated && cc1101_rx_ctx.original_expected_len > cc1101_rx_ctx.expected_len) {
+        size_t remaining = cc1101_rx_ctx.original_expected_len - cc1101_rx_ctx.expected_len;
+        cc1101_discard_remaining_fifo(remaining);
+    }
+
+    *packet_size = cc1101_rx_ctx.bytes_read;
     ESP_LOGD(TAG, "Received packet of %d bytes", (int)*packet_size);
     return ESP_OK;
 }
@@ -520,6 +831,9 @@ esp_err_t set_cc1101_mode(cc1101_mode_t mode)
             // Enter RX mode
             ret = cc1101_send_command_strobe(CC1101_SRX);
             ESP_LOGI(TAG, "Set CC1101 to RX mode");
+            if (ret == ESP_OK) {
+                cc1101_trace_marcstate_sequence("srx-after-mode-set", 8, 200);
+            }
             break;
             
         case CC1101_MODE_TX:
