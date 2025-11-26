@@ -12,10 +12,9 @@ static inline void unlock(cc1101_handle_t *h) { if (h->lock) xSemaphoreGive(h->l
 static esp_err_t write_cmd(cc1101_handle_t *h, uint8_t cmd)
 {
     uint8_t tx = cmd;
-    spi_transaction_t t = {
-        .length = 8,
-        .tx_buffer = &tx,
-    };
+    spi_transaction_t t = {0};
+    t.length = 8;
+    t.tx_buffer = &tx;
     lock(h);
     esp_err_t err = spi_device_polling_transmit(h->spi, &t);
     unlock(h);
@@ -25,10 +24,9 @@ static esp_err_t write_cmd(cc1101_handle_t *h, uint8_t cmd)
 esp_err_t cc1101_write_reg(cc1101_handle_t *h, uint8_t reg, uint8_t val)
 {
     uint8_t buf[2] = {reg, val};
-    spi_transaction_t t = {
-        .length = 16,
-        .tx_buffer = buf,
-    };
+    spi_transaction_t t = {0};
+    t.length = 16;
+    t.tx_buffer = buf;
     lock(h);
     esp_err_t err = spi_device_polling_transmit(h->spi, &t);
     unlock(h);
@@ -39,11 +37,10 @@ esp_err_t cc1101_read_reg(cc1101_handle_t *h, uint8_t reg, uint8_t *out)
 {
     uint8_t tx[2] = {(uint8_t)(reg | CC1101_READ_SINGLE), 0x00};
     uint8_t rx[2] = {0};
-    spi_transaction_t t = {
-        .length = 16,
-        .tx_buffer = tx,
-        .rx_buffer = rx,
-    };
+    spi_transaction_t t = {0};
+    t.length = 16;
+    t.tx_buffer = tx;
+    t.rx_buffer = rx;
     lock(h);
     esp_err_t err = spi_device_polling_transmit(h->spi, &t);
     unlock(h);
@@ -56,12 +53,9 @@ esp_err_t cc1101_read_reg(cc1101_handle_t *h, uint8_t reg, uint8_t *out)
 esp_err_t cc1101_read_burst(cc1101_handle_t *h, uint8_t reg, uint8_t *buf, size_t len)
 {
     uint8_t addr = reg | CC1101_READ_BURST;
-    spi_transaction_t t = {
-        .flags = 0,
-        .length = (len + 1) * 8,
-        .tx_buffer = NULL,
-        .rx_buffer = NULL,
-    };
+    spi_transaction_t t = {0};
+    t.flags = 0;
+    t.length = (len + 1) * 8;
     uint8_t *tx = malloc(len + 1);
     uint8_t *rx = malloc(len + 1);
     if (!tx || !rx) {

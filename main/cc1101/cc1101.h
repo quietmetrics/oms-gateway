@@ -98,15 +98,15 @@ typedef struct {
 } cc1101_handle_t;
 
 typedef struct {
-    // Modem config: sync mode + 3/6 coding params; default 0x05 (16/16 sync, T-mode)
+    // MDMCFG2: Sync mode / modulation specifics. Default 0x05 (16/16 sync, T-mode).
     uint8_t mdmcfg2;
-    // Packet control: preamble-quality threshold (PQT bits 7:5) etc.; default 0x00 (no PQT)
+    // PKTCTRL1: Preamble quality threshold (PQT bits 7:5) etc. Default 0x00 (PQT disabled).
     uint8_t pktctrl1;
-    // Modem config: channel BW/DRATE_E; default 0x5C (~150 kHz BW for T-mode)
+    // MDMCFG4: RX channel bandwidth / DRATE_E. Default 0x5C (~150 kHz BW for T-mode).
     uint8_t mdmcfg4;
-    // AGC control 1: carrier sense / wait time; default 0x09 (example lib)
+    // AGCCTRL1: Carrier sense / AGC wait time. Default 0x09 (example lib).
     uint8_t agcctrl1;
-    // AGC control 2: target/step sizes; default 0x43 (example lib)
+    // AGCCTRL2: AGC target/step sizes. Default 0x43 (example lib).
     uint8_t agcctrl2;
 } cc1101_filter_cfg_t;
 

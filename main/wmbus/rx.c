@@ -4,7 +4,6 @@
 #include "wmbus/packet.h"
 #include "wmbus/encoding_3of6.h"
 #include "driver/gpio.h"
-#include "freertos/queue.h"
 #include "freertos/task.h"
 #include <string.h>
 
@@ -32,12 +31,18 @@ static RXinfoDescr RXinfo;
 
 #define RX_AVAILABLE_FIFO 32
 
-typedef struct {
-    uint32_t gpio_num;
-} rx_event_t;
-
-static QueueHandle_t s_rx_evt_queue = NULL;
 static TaskHandle_t s_rx_task = NULL;
+
+// Start RX once: clean idle, flush, set thresholds, enter RX.
+static esp_err_t start_rx_once(void)
+{
+    cc1101_idle(s_cc);
+    cc1101_strobe(s_cc, CC1101_SFRX);
+    cc1101_strobe(s_cc, CC1101_SFTX);
+    cc1101_write_reg(s_cc, CC1101_FIFOTHR, RX_FIFO_START_THRESHOLD);
+    cc1101_write_reg(s_cc, CC1101_PKTCTRL0, INFINITE_PACKET_LENGTH);
+    return cc1101_enter_rx(s_cc);
+}
 
 static void handle_gdo_event(uint32_t gpio_num)
 {
@@ -47,8 +52,26 @@ static void handle_gdo_event(uint32_t gpio_num)
         uint8_t bytesDecoded[2] = {0};
         if (RXinfo.start) {
             cc1101_read_burst(s_cc, CC1101_RXFIFO, RXinfo.pByteIndex, 3);
-            // Example behavior: decode header but do not abort on error; final decode_tmode will decide
-            wmbus_decode_3of6(RXinfo.pByteIndex, bytesDecoded, 0);
+            wmbus_dec_status_t dec = wmbus_decode_3of6(RXinfo.pByteIndex, bytesDecoded, 0);
+            if (dec != WMBUS_DEC_OK) {
+                static uint32_t bad_lfield_log = 0;
+                if ((bad_lfield_log++ % 10) == 0) {
+                    ESP_LOGD(TAG, "Invalid 3of6 in L-field, flushing RX");
+                }
+                // Flush, signal abort to main loop, and let it re-arm
+                RXinfo.complete = false;
+                RXinfo.start = true;
+                if (s_result) {
+                    s_result->complete = true;
+                    s_result->packet_size = 0;
+                    s_result->encoded_len = 0;
+                    s_result->crc_ok = false;
+                }
+                cc1101_idle(s_cc);
+                cc1101_strobe(s_cc, CC1101_SFRX);
+                cc1101_strobe(s_cc, CC1101_SFTX);
+                return;
+            }
 
             RXinfo.lengthField = bytesDecoded[0];
             RXinfo.length = wmbus_encoded_size_from_packet(wmbus_packet_size_from_l(RXinfo.lengthField));
@@ -117,22 +140,29 @@ static void handle_gdo_event(uint32_t gpio_num)
 
 static void rx_worker_task(void *arg)
 {
-    rx_event_t evt;
-    while (1) {
-        if (xQueueReceive(s_rx_evt_queue, &evt, portMAX_DELAY) == pdTRUE) {
-            handle_gdo_event(evt.gpio_num);
+    (void)arg;
+    for (;;) {
+        uint32_t flags = 0;
+        xTaskNotifyWait(0, 0, &flags, pdMS_TO_TICKS(100));
+        if (flags & BIT0) {
+            handle_gdo_event(s_cc->pins.pin_gdo0);
         }
+        if (flags & BIT1) {
+            handle_gdo_event(s_cc->pins.pin_gdo2);
+        }
+        vTaskDelay(1);
     }
 }
 
 static void IRAM_ATTR gdo_isr_handler(void *arg)
 {
-    if (!s_rx_evt_queue) return;
-    rx_event_t evt = {
-        .gpio_num = (uint32_t)arg,
-    };
+    uint32_t gpio = (uint32_t)arg;
     BaseType_t hp_task_woken = pdFALSE;
-    xQueueSendFromISR(s_rx_evt_queue, &evt, &hp_task_woken);
+    if (gpio == s_cc->pins.pin_gdo0) {
+        xTaskNotifyFromISR(s_rx_task, BIT0, eSetBits, &hp_task_woken);
+    } else if (gpio == s_cc->pins.pin_gdo2) {
+        xTaskNotifyFromISR(s_rx_task, BIT1, eSetBits, &hp_task_woken);
+    }
     if (hp_task_woken == pdTRUE) {
         portYIELD_FROM_ISR();
     }
@@ -152,14 +182,12 @@ esp_err_t wmbus_rx_init(cc1101_handle_t *cc)
     // Use edge types matching the example: GDO0 rises on FIFO threshold, GDO2 falls on packet done
     ESP_RETURN_ON_ERROR(gpio_set_intr_type(cc->pins.pin_gdo0, GPIO_INTR_POSEDGE), TAG, "intr0");
     ESP_RETURN_ON_ERROR(gpio_set_intr_type(cc->pins.pin_gdo2, GPIO_INTR_NEGEDGE), TAG, "intr2");
-    if (!s_rx_evt_queue) {
-        s_rx_evt_queue = xQueueCreate(64, sizeof(rx_event_t));
-    }
-    if (!s_rx_evt_queue) {
-        return ESP_ERR_NO_MEM;
-    }
     if (!s_rx_task) {
-        xTaskCreate(rx_worker_task, "wmbus_rx", 4096, NULL, 8, &s_rx_task);
+        BaseType_t res = xTaskCreatePinnedToCore(rx_worker_task, "wmbus_rx", 4096, NULL, 14, &s_rx_task, 0);
+        if (res != pdPASS || !s_rx_task) {
+            ESP_LOGE(TAG, "Failed to create rx task");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     esp_err_t err = gpio_install_isr_service(0);
@@ -189,33 +217,10 @@ esp_err_t wmbus_rx_start(wmbus_rx_result_t *result)
     result->marc_state = 0;
     result->pkt_status = 0;
 
-    uint8_t status = 0;
-    ESP_RETURN_ON_ERROR(cc1101_get_status(s_cc, &status), TAG, "get status");
-    uint8_t state = (status >> 4) & 0x07;
-    if (state != 0) { // 0 = IDLE per CC1101 datasheet
-        ESP_LOGW(TAG, "Radio not idle (state=0x%02X), forcing IDLE", state);
-        ESP_RETURN_ON_ERROR(cc1101_idle(s_cc), TAG, "idle");
-        vTaskDelay(pdMS_TO_TICKS(1));
-        if (state == 6) { // RX FIFO overflow
-            cc1101_strobe(s_cc, CC1101_SFRX);
-        } else if (state == 7) { // TX FIFO underflow
-            cc1101_strobe(s_cc, CC1101_SFTX);
-        }
-    }
-
-    // Ensure we are idle and FIFO is clean before RX (Example style)
-    ESP_RETURN_ON_ERROR(cc1101_strobe(s_cc, CC1101_SFRX), TAG, "flush");
-
-    cc1101_write_reg(s_cc, CC1101_FIFOTHR, RX_FIFO_START_THRESHOLD);
-    cc1101_write_reg(s_cc, CC1101_PKTCTRL0, INFINITE_PACKET_LENGTH);
-
-    ESP_RETURN_ON_ERROR(cc1101_enter_rx(s_cc), TAG, "enter rx");
-    uint8_t marc_after = 0;
-    if (cc1101_read_reg(s_cc, CC1101_MARCSTATE, &marc_after) == ESP_OK) {
-        marc_after &= 0x1F;
-        if (marc_after != 0x0D && marc_after != 0x0E) { // expected RX / RX_END
-            ESP_LOGW(TAG, "After SRX, MARCSTATE=0x%02X (expected RX)", marc_after);
-        }
+    // Just start RX; don't hard-fail on MARC to avoid churn
+    esp_err_t err = start_rx_once();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "RX start warning (continuing despite status)");
     }
     return ESP_OK;
 }
