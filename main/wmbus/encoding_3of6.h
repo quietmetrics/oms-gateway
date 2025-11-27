@@ -1,11 +1,10 @@
+// 3-out-of-6 encoding/decoding used for wM-Bus T-mode
 #pragma once
+
 #include <stdint.h>
-#include "esp_err.h"
 
-typedef enum {
-    WMBUS_DEC_OK = 0,
-    WMBUS_DEC_ERROR = 1,
-} wmbus_dec_status_t;
+#define WMBUS_3OF6_OK    0
+#define WMBUS_3OF6_ERROR 1
 
-void wmbus_encode_3of6(uint8_t *uncoded, uint8_t *encoded, uint8_t last_byte);
-wmbus_dec_status_t wmbus_decode_3of6(uint8_t *encoded, uint8_t *decoded, uint8_t last_byte);
+void wmbus_encode_3of6(const uint8_t *uncoded, uint8_t *encoded, uint8_t last_byte);
+uint8_t wmbus_decode_3of6(const uint8_t *encoded, uint8_t *decoded, uint8_t last_byte);

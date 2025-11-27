@@ -1,0 +1,49 @@
+// CC1101 T-mode register configuration (ported from TI SWRA234A tmode_rf_settings.h)
+#pragma once
+
+#include <stdint.h>
+
+typedef struct
+{
+    uint8_t addr;
+    uint8_t value;
+} cc1101_reg_value_t;
+
+static const cc1101_reg_value_t cc1101_tmode_reg_config[] = {
+    {0x0B, 0x08}, // FSCTRL1
+    {0x0C, 0x00}, // FSCTRL0
+    {0x0D, 0x21}, // FREQ2
+    {0x0E, 0x6B}, // FREQ1
+    {0x0F, 0xD0}, // FREQ0
+    {0x10, 0x5C}, // MDMCFG4 (103 kBaud)
+    {0x11, 0x04}, // MDMCFG3
+    {0x12, 0x05}, // MDMCFG2
+    {0x13, 0x22}, // MDMCFG1
+    {0x14, 0xF8}, // MDMCFG0
+    {0x0A, 0x00}, // CHANNR
+    {0x15, 0x44}, // DEVIATN
+    {0x21, 0xB6}, // FREND1
+    {0x22, 0x10}, // FREND0
+    {0x18, 0x18}, // MCSM0
+    {0x19, 0x2E}, // FOCCFG
+    {0x1A, 0xBF}, // BSCFG
+    {0x1B, 0x43}, // AGCCTRL2
+    {0x1C, 0x09}, // AGCCTRL1
+    {0x1D, 0xB5}, // AGCCTRL0
+    {0x23, 0xEA}, // FSCAL3
+    {0x24, 0x2A}, // FSCAL2
+    {0x25, 0x00}, // FSCAL1
+    {0x26, 0x1F}, // FSCAL0
+    {0x29, 0x59}, // FSTEST
+    {0x2C, 0x81}, // TEST2
+    {0x2D, 0x35}, // TEST1
+    {0x2E, 0x09}, // TEST0
+    {0x00, 0x06}, // IOCFG2
+    {0x02, 0x00}, // IOCFG0
+    {0x07, 0x00}, // PKTCTRL1
+    {0x08, 0x00}, // PKTCTRL0 (set to infinite later as needed)
+    {0x09, 0x00}, // ADDR
+    {0x06, 0xFF}, // PKTLEN
+};
+
+static const uint8_t cc1101_tmode_pa_table[] = {0xC2};
