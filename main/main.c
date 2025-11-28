@@ -11,6 +11,7 @@
 #include "radio/cc1101_hal.h"
 #include "wmbus/pipeline.h"
 #include "wmbus/packet.h"
+#include "wmbus/device_types.h"
 
 static const char *TAG = "app";
 
@@ -85,6 +86,17 @@ static void log_packet_summary(const wmbus_rx_result_t *res, const WmbusFrameInf
         snprintf(id_hex, sizeof(id_hex), "%02X%02X%02X%02X", info->header.id[3], info->header.id[2], info->header.id[1], info->header.id[0]);
 
         ESP_LOGI(TAG, "Header: Manuf=%s ID=%s CI=0x%02X Ver=0x%02X Dev=0x%02X", manuf_hex, id_hex, info->header.ci_field, info->header.version, info->header.device_type);
+
+        const oms_device_type_info_t *dev = oms_device_type_lookup(info->header.device_type);
+        if (dev)
+        {
+            // Same lookup can drive web UI labels: device->name/category_desc are ready to render.
+            ESP_LOGI(TAG, "Device: type=0x%02X \"%s\" category=%c (%s)", dev->code, dev->name, dev->category, dev->category_desc);
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Device: type=0x%02X (unknown)", info->header.device_type);
+        }
     }
 }
 
