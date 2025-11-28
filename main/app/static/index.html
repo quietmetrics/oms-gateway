@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OMS Gateway</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>OMS Gateway</h1>
+  </div>
+  <span class="pill" id="hostname-pill">hostname</span>
+</header>
+<div id="toast" class="toast"></div>
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>Wi-Fi & Hostname</h2>
+      <label>Hostname</label><input id="hostname" placeholder="oms-gateway" />
+      <div class="row" style="margin-top:10px;">
+        <div><label>SSID</label><input id="wifi-ssid" placeholder="" /></div>
+        <div><label>Password</label><input id="wifi-pass" type="password" placeholder="" /></div>
+      </div>
+      <button class="primary" style="margin-top:12px;" onclick="saveWifi()">Save Wi-Fi</button>
+      <p class="muted" id="wifi-status" style="margin-top:8px;">-</p>
+    </section>
+    <section class="card">
+      <h2>Backend</h2>
+      <label>Endpoint URL</label><input id="backend-url" placeholder="http://host:port/path" />
+      <div class="row" style="margin-top:10px;">
+        <button class="primary" onclick="saveBackend()">Save</button>
+        <button class="accent" onclick="testBackend()">Test</button>
+      </div>
+      <p class="muted" id="backend-status" style="margin-top:8px;">-</p>
+    </section>
+    <section class="card">
+      <h2>Radio</h2>
+      <div class="row">
+        <div><label>CS Threshold</label><select id="cs-level"><option value="0">Default</option><option value="1">Medium</option><option value="2">High</option><option value="3">Low</option></select></div>
+        <div><label>Sync Mode</label><select id="sync-mode"><option value="0">Default 15/16</option><option value="1">Tight 16/16</option><option value="2">Strict 30/32</option></select></div>
+      </div>
+      <button class="primary" style="margin-top:12px;" onclick="saveRadio()">Save Radio</button>
+      <p class="muted" id="radio-status" style="margin-top:8px;">-</p>
+    </section>
+    <section class="card">
+      <h2>Whitelist</h2>
+      <label>Manufacturer (hex LE)</label><input id="wl-manuf" placeholder="36F5" />
+      <label style="margin-top:8px;">ID (8 hex, LSB first)</label><input id="wl-id" placeholder="60931101" />
+      <button class="primary" style="margin-top:12px;" onclick="addWhitelist()">Add</button>
+      <div style="margin-top:12px;"><p class="section-title">Entries</p><div id="wl-list" class="list"></div></div>
+    </section>
+  </div>
+  <section class="card" style="margin-top:12px;">
+    <h2>Recent Packets</h2>
+    <div id="pkt-list" class="list"></div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

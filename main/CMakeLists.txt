@@ -16,6 +16,10 @@ idf_component_register(
         "app/storage.c"
         "app/runtime.c"
         "app/http_server.c"
+    EMBED_FILES
+        "app/static/index.html"
+        "app/static/app.js"
+        "app/static/style.css"
     INCLUDE_DIRS
         "."
         "radio"

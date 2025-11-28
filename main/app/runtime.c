@@ -19,7 +19,6 @@
 #include "app/net/wifi.h"
 #include "app/radio/radio_config.h"
 #include "app/services.h"
-#include "app/config_defaults.h"
 #include "app/config.h"
 #include "app/http_server.h"
 
@@ -138,14 +137,6 @@ static esp_err_t system_init(void)
     return ESP_OK;
 }
 
-static void apply_test_defaults(services_state_t *svc)
-{
-    static const uint8_t test_id[4] = APP_TEST_ID;
-    backend_set_url(services_backend(svc), APP_TEST_BACKEND_URL);
-    wmbus_whitelist_add(services_whitelist(svc), APP_TEST_MANUF, test_id);
-    wifi_sta_set_credentials(APP_TEST_WIFI_SSID, APP_TEST_WIFI_PASS);
-}
-
 static esp_err_t wifi_start_with_fallback(services_state_t *svc)
 {
     if (wifi_sta_connect() != ESP_OK)
@@ -159,14 +150,11 @@ static esp_err_t app_setup(app_ctx_t *ctx)
 {
     ESP_ERROR_CHECK(system_init());
     ESP_ERROR_CHECK(services_init(&ctx->services));
-    if (APP_USE_TEST_DEFAULTS)
-    {
-        apply_test_defaults(&ctx->services);
-    }
 
     ESP_ERROR_CHECK(wmbus_packet_router_init());
     wmbus_packet_router_register(ui_sink, NULL);
     wmbus_packet_router_register(forwarder_sink, &ctx->services);
+    http_server_register_packet_sink();
 
     ctx->pins = cc1101_default_pins();
     ESP_ERROR_CHECK(cc1101_hal_init(&ctx->pins, &ctx->cc1101));

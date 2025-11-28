@@ -7,3 +7,6 @@
 esp_err_t http_server_start(services_state_t *svc);
 // Stop server (optional; no-op if not started).
 void http_server_stop(void);
+
+// Register packet sink to capture packets for /api/packets (safe to call once).
+esp_err_t http_server_register_packet_sink(void);
