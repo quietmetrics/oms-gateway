@@ -2,14 +2,14 @@
 #pragma once
 
 #ifndef APP_USE_TEST_DEFAULTS
-#define APP_USE_TEST_DEFAULTS 1
+#define APP_USE_TEST_DEFAULTS 0
 #endif
 
-#define APP_TEST_BACKEND_URL "***"
-#define APP_TEST_MANUF 0x36F5
+#define APP_TEST_BACKEND_URL ""
+#define APP_TEST_MANUF 0x0000
 #define APP_TEST_ID      \
     {                    \
-        0x60, 0x93, 0x11, 0x01 \
+        0, 0, 0, 0       \
     }
-#define APP_TEST_WIFI_SSID "***"
-#define APP_TEST_WIFI_PASS "***"
+#define APP_TEST_WIFI_SSID ""
+#define APP_TEST_WIFI_PASS ""
