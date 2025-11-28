@@ -15,6 +15,7 @@ idf_component_register(
         "app/services.c"
         "app/storage.c"
         "app/runtime.c"
+        "app/http_server.c"
     INCLUDE_DIRS
         "."
         "radio"
@@ -27,4 +28,5 @@ idf_component_register(
         esp_http_client
         esp_netif
         esp_wifi
+        esp_http_server
 )

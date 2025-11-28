@@ -21,6 +21,7 @@
 #include "app/services.h"
 #include "app/config_defaults.h"
 #include "app/config.h"
+#include "app/http_server.h"
 
 static const char *TAG = "app";
 
@@ -173,6 +174,7 @@ static esp_err_t app_setup(app_ctx_t *ctx)
     ESP_ERROR_CHECK(radio_config_apply(services_radio(&ctx->services), &ctx->cc1101));
 
     ESP_ERROR_CHECK(wifi_start_with_fallback(&ctx->services));
+    ESP_ERROR_CHECK(http_server_start(&ctx->services));
     return ESP_OK;
 }
 
