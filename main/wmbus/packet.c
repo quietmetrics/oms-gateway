@@ -433,3 +433,34 @@ bool wmbus_parse_frame_header(const uint8_t *packet_no_crc, uint16_t packet_len,
 
     return true;
 }
+
+bool wmbus_extract_frame_info(const uint8_t *packet, uint16_t packet_len, uint8_t *scratch, uint16_t scratch_len, WmbusFrameInfo *info)
+{
+    if (!packet || !scratch || scratch_len == 0 || !info)
+    {
+        return false;
+    }
+
+    memset(info, 0, sizeof(WmbusFrameInfo));
+
+    if (packet_len == 0)
+    {
+        return false;
+    }
+
+    info->logical_len = wmbus_strip_crc_blocks(packet, packet_len, scratch, scratch_len);
+    if (info->logical_len == 0)
+    {
+        return false;
+    }
+
+    const uint8_t *payload = NULL;
+    if (!wmbus_parse_frame_header(scratch, info->logical_len, &info->header, &payload, &info->payload_len))
+    {
+        memset(info, 0, sizeof(WmbusFrameInfo));
+        return false;
+    }
+
+    info->parsed = true;
+    return true;
+}

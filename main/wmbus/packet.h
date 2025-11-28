@@ -60,3 +60,16 @@ bool wmbus_parse_frame_header(const uint8_t *packet_no_crc, uint16_t packet_len,
 
 // Populate a header struct with the default/demo values used by the example encoder.
 void wmbus_build_default_header(WmbusFrameHeaderRaw *header, uint8_t payload_len);
+
+typedef struct
+{
+    bool parsed;
+    uint16_t logical_len; // L+1 bytes after CRCs are removed
+    uint16_t payload_len;
+    WmbusFrameHeaderRaw header;
+} WmbusFrameInfo;
+
+// Convenience: strip CRCs and parse the fixed header in one call.
+// Returns true on successful parse, false otherwise. The scratch buffer must
+// hold at least packet_len bytes.
+bool wmbus_extract_frame_info(const uint8_t *packet, uint16_t packet_len, uint8_t *scratch, uint16_t scratch_len, WmbusFrameInfo *info);
