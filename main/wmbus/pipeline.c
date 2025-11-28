@@ -403,8 +403,14 @@ esp_err_t wmbus_pipeline_receive(cc1101_hal_t *dev, wmbus_rx_result_t *res, uint
 
     memset(res->rx_packet, 0, WMBUS_MAX_PACKET_BYTES);
     memset(res->rx_bytes, 0, WMBUS_MAX_ENCODED_BYTES);
+    if (res->rx_logical)
+    {
+        memset(res->rx_logical, 0, WMBUS_MAX_PACKET_BYTES);
+    }
     res->encoded_len = 0;
     res->packet_size = 0;
+    res->logical_len = 0;
+    memset(&res->frame_info, 0, sizeof(res->frame_info));
     res->l_field = 0;
     res->status = WMBUS_PKT_CODING_ERROR;
     res->complete = false;
@@ -478,6 +484,12 @@ esp_err_t wmbus_pipeline_receive(cc1101_hal_t *dev, wmbus_rx_result_t *res, uint
     res->packet_size = pkt_size;
     res->status = wmbus_decode_rx_bytes_tmode(res->rx_bytes, res->rx_packet, res->packet_size);
     res->complete = true;
+
+    if (res->status == WMBUS_PKT_OK && res->rx_logical)
+    {
+        wmbus_extract_frame_info(res->rx_packet, res->packet_size, res->rx_logical, WMBUS_MAX_PACKET_BYTES, &res->frame_info);
+        res->logical_len = res->frame_info.logical_len;
+    }
 
     // Capture status registers for diagnostics
     cc1101_hal_read_reg(dev, CC1101_RSSI, &res->rssi_raw);

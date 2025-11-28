@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include "esp_err.h"
 #include "radio/cc1101_hal.h"
+#include "wmbus/packet.h"
 
 #define WMBUS_MAX_PACKET_BYTES   291
 #define WMBUS_MAX_ENCODED_BYTES  584
@@ -13,8 +14,11 @@ typedef struct
 {
     uint8_t *rx_packet;     // Decoded packet buffer (size WMBUS_MAX_PACKET_BYTES)
     uint8_t *rx_bytes;      // Encoded byte buffer (size WMBUS_MAX_ENCODED_BYTES)
+    uint8_t *rx_logical;    // CRC-free packet buffer (size WMBUS_MAX_PACKET_BYTES)
     uint16_t packet_size;   // Decoded size (incl. all fields)
     uint16_t encoded_len;   // Encoded byte count read
+    uint16_t logical_len;   // CRC-free length (L+1) if rx_logical is provided
+    WmbusFrameInfo frame_info; // Parsed header + payload len if rx_logical provided
     uint8_t l_field;        // L-field value
     bool complete;
     uint8_t status;         // WMBUS_PKT_xxx

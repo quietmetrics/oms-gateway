@@ -129,10 +129,11 @@ void app_main(void)
 
     static uint8_t rx_packet[WMBUS_MAX_PACKET_BYTES];
     static uint8_t rx_bytes[WMBUS_MAX_ENCODED_BYTES];
-    static uint8_t rx_packet_stripped[WMBUS_MAX_PACKET_BYTES];
+    static uint8_t rx_logical[WMBUS_MAX_PACKET_BYTES];
     wmbus_rx_result_t res = {
         .rx_packet = rx_packet,
         .rx_bytes = rx_bytes,
+        .rx_logical = rx_logical,
     };
 
     while (true)
@@ -146,11 +147,9 @@ void app_main(void)
             continue;
         }
 
-        WmbusFrameInfo info = {0};
-        wmbus_extract_frame_info(res.rx_packet, res.packet_size, rx_packet_stripped, sizeof(rx_packet_stripped), &info);
-        log_packet_summary(&res, &info);
+        log_packet_summary(&res, &res.frame_info);
 
-        if (!info.parsed)
+        if (!res.frame_info.parsed)
         {
             ESP_LOGW(TAG, "Header parse failed");
         }
