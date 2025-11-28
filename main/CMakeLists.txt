@@ -7,12 +7,24 @@ idf_component_register(
         "wmbus/3of6.c"
         "wmbus/packet.c"
         "wmbus/pipeline.c"
+        "app/wmbus/packet_router.c"
+        "app/wmbus/whitelist.c"
+        "app/net/backend.c"
+        "app/net/wifi.c"
+        "app/radio/radio_config.c"
+        "app/services.c"
+        "app/storage.c"
+        "app/runtime.c"
     INCLUDE_DIRS
         "."
         "radio"
         "wmbus"
+        "app"
     REQUIRES
         driver
         nvs_flash
         esp_timer
+        esp_http_client
+        esp_netif
+        esp_wifi
 )
