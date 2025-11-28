@@ -16,7 +16,18 @@ typedef struct
     bool connected;
     char ssid[32];
     char ip[16];
+    bool has_pass;
+    int rssi;
+    char gateway[16];
+    char dns[16];
 } app_wifi_status_t;
+
+typedef struct
+{
+    char ssid[32];
+    uint8_t channel;
+    bool has_pass;
+} app_ap_status_t;
 
 typedef struct
 {

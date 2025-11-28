@@ -245,14 +245,14 @@ esp_err_t wifi_ap_save_config(const wifi_ap_config_store_t *cfg)
 
 esp_err_t wifi_ap_set_config(const char *ssid, const char *pass, uint8_t channel)
 {
-    if (!ssid || !pass || channel == 0)
+    if (!ssid || !pass)
     {
         return ESP_ERR_INVALID_ARG;
     }
     wifi_ap_config_store_t cfg = {0};
     strncpy(cfg.ssid, ssid, sizeof(cfg.ssid) - 1);
     strncpy(cfg.pass, pass, sizeof(cfg.pass) - 1);
-    cfg.channel = channel;
+    cfg.channel = channel ? channel : 1; // default to channel 1 if not provided
     return wifi_ap_save_config(&cfg);
 }
 
@@ -383,6 +383,11 @@ esp_err_t wifi_get_status(wifi_status_t *out)
     {
         strncpy(out->ssid, (const char *)cfg.sta.ssid, sizeof(out->ssid) - 1);
     }
+    wifi_credentials_t cred = {0};
+    if (wifi_sta_load_credentials(&cred) == ESP_OK)
+    {
+        out->has_pass = (cred.pass[0] != '\0');
+    }
 
     if (s_netif && s_connected)
     {
@@ -390,6 +395,17 @@ esp_err_t wifi_get_status(wifi_status_t *out)
         if (esp_netif_get_ip_info(s_netif, &ip) == ESP_OK && ip.ip.addr != 0)
         {
             esp_ip4addr_ntoa(&ip.ip, out->ip, sizeof(out->ip));
+            esp_ip4addr_ntoa(&ip.gw, out->gateway, sizeof(out->gateway));
+        }
+        wifi_ap_record_t ap = {0};
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
+        {
+            out->rssi = ap.rssi;
+        }
+        esp_netif_dns_info_t dns_info = {0};
+        if (esp_netif_get_dns_info(s_netif, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK && dns_info.ip.type == ESP_IPADDR_TYPE_V4)
+        {
+            esp_ip4addr_ntoa(&dns_info.ip.u_addr.ip4, out->dns, sizeof(out->dns));
         }
     }
 

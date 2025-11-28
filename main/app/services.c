@@ -72,6 +72,10 @@ esp_err_t services_get_wifi_status(app_wifi_status_t *out)
     out->connected = wifi.connected;
     strncpy(out->ssid, wifi.ssid, sizeof(out->ssid) - 1);
     strncpy(out->ip, wifi.ip, sizeof(out->ip) - 1);
+    out->has_pass = wifi.has_pass;
+    out->rssi = wifi.rssi;
+    strncpy(out->gateway, wifi.gateway, sizeof(out->gateway) - 1);
+    strncpy(out->dns, wifi.dns, sizeof(out->dns) - 1);
     return ESP_OK;
 }
 
@@ -79,6 +83,32 @@ esp_err_t services_set_ap_config(services_state_t *svc, const char *ssid, const 
 {
     (void)svc;
     return wifi_ap_set_config(ssid, pass, channel);
+}
+
+esp_err_t services_get_ap_status(app_ap_status_t *out)
+{
+    if (!out)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    wifi_ap_config_store_t cfg = {0};
+    esp_err_t err = wifi_ap_load_config(&cfg);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    memset(out, 0, sizeof(*out));
+    if (cfg.ssid[0] != '\0')
+    {
+        strncpy(out->ssid, cfg.ssid, sizeof(out->ssid) - 1);
+    }
+    else
+    {
+        strncpy(out->ssid, "oms-ap", sizeof(out->ssid) - 1);
+    }
+    out->channel = cfg.channel ? cfg.channel : 1;
+    out->has_pass = (cfg.pass[0] != '\0');
+    return ESP_OK;
 }
 
 esp_err_t services_set_hostname(services_state_t *svc, const char *hostname)

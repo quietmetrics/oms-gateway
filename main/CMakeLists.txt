@@ -20,6 +20,13 @@ idf_component_register(
         "app/static/index.html"
         "app/static/app.js"
         "app/static/style.css"
+        "app/static/icons/wifi.svg"
+        "app/static/icons/cloud_done.svg"
+        "app/static/icons/cloud_off.svg"
+        "app/static/icons/shield.svg"
+        "app/static/icons/sensors.svg"
+        "app/static/icons/trash.svg"
+        "app/static/icons/podcast.svg"
     INCLUDE_DIRS
         "."
         "radio"

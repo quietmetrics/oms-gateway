@@ -47,6 +47,7 @@ esp_err_t services_set_wifi_credentials(services_state_t *svc, const char *ssid,
 esp_err_t services_get_wifi_status(app_wifi_status_t *out);
 
 esp_err_t services_set_ap_config(services_state_t *svc, const char *ssid, const char *pass, uint8_t channel);
+esp_err_t services_get_ap_status(app_ap_status_t *out);
 
 esp_err_t services_set_hostname(services_state_t *svc, const char *hostname);
 esp_err_t services_get_hostname(char *out, size_t out_len);

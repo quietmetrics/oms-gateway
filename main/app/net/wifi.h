@@ -38,6 +38,10 @@ typedef struct
     bool connected;
     char ssid[32];
     char ip[16];
+    bool has_pass;
+    int rssi;
+    char gateway[16];
+    char dns[16];
 } wifi_status_t;
 
 // Read current STA status (connected flag, SSID, IPv4 string if available).
