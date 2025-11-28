@@ -1,4 +1,4 @@
-#include "wmbus/encoding_3of6.h"
+#include "wmbus/3of6.h"
 
 // Tables ported from TI SWRA234A
 static const uint8_t encode_tab[16] = {
