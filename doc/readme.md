@@ -58,6 +58,7 @@
 
 ### Current Status & Next Steps (checklist)
 - [x] Receive path operational; basic configuration possible.
+- [x] Helper layer: services + runtime; NVS-backed helpers for Wi-Fi creds/hostname, backend URL, whitelist, radio CS/sync.
 - [ ] Web UI: AP onboarding → STA Wi-Fi config; styled interface with live W-MBus monitor (packet list with ID, CRC status, metadata).
 - [ ] Packet table actions: add sender address to whitelist via button when packet is valid.
 - [ ] Whitelist logic: only whitelisted packets get forwarded.
