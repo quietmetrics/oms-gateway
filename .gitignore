@@ -31,6 +31,9 @@ Thumbs.db
 temp/
 
 # Python virtual environments (if using for scripts)
+__pycache__/
+*.pyc
+.venv/
 venv/
 env/
 venv*/
