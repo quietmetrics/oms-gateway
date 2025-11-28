@@ -4,7 +4,7 @@ idf_component_register(
         "radio/cc1101_hal.c"
         "radio/radio_rx.c"
         "wmbus/crc16.c"
-        "wmbus/encoding_3of6.c"
+        "wmbus/3of6.c"
         "wmbus/packet.c"
         "wmbus/pipeline.c"
     INCLUDE_DIRS

@@ -56,6 +56,51 @@ static void log_hex(const char *prefix, const uint8_t *buf, size_t len, size_t m
     free(hex);
 }
 
+static void log_packet_summary(const wmbus_rx_result_t *res, const WmbusFrameInfo *info)
+{
+    if (!res)
+    {
+        return;
+    }
+
+    const bool ok = (res->status == WMBUS_PKT_OK) && res->packet_size >= 8;
+    ESP_LOGI(TAG, "Packet %s: status=%u L=%u len(dec)=%u len(enc)=%u logical=%u payload_len=%u RSSI=%.1f LQI=%u marc=0x%02X pkt=0x%02X",
+             ok ? "OK" : "ERR",
+             res->status,
+             res->packet_size ? res->rx_packet[0] : 0,
+             res->packet_size,
+             res->encoded_len,
+             info ? info->logical_len : 0,
+             info ? info->payload_len : 0,
+             res->rssi_dbm,
+             res->lqi,
+             res->marc_state,
+             res->pkt_status);
+
+    if (info && info->parsed)
+    {
+        char manuf_hex[5] = {0};
+        char id_hex[9] = {0};
+        snprintf(manuf_hex, sizeof(manuf_hex), "%02X%02X", (uint8_t)(info->header.manufacturer_le & 0xFF), (uint8_t)((info->header.manufacturer_le >> 8) & 0xFF));
+        snprintf(id_hex, sizeof(id_hex), "%02X%02X%02X%02X", info->header.id[3], info->header.id[2], info->header.id[1], info->header.id[0]);
+
+        ESP_LOGI(TAG, "Header: Manuf=%s ID=%s CI=0x%02X Ver=0x%02X Dev=0x%02X", manuf_hex, id_hex, info->header.ci_field, info->header.version, info->header.device_type);
+    }
+}
+
+static void log_diag(const wmbus_rx_result_t *res)
+{
+    if (!res)
+    {
+        return;
+    }
+
+    log_hex("RAW(enc): ", res->rx_bytes, res->encoded_len, 16);
+    log_hex("RAW(dec): ", res->rx_packet, res->packet_size, 16);
+    ESP_LOGI(TAG, "Diag: marc=0x%02X pkt=0x%02X raw_rssi=0x%02X raw_lqi=0x%02X",
+             res->marc_state, res->pkt_status, res->rssi_raw, res->lqi_raw);
+}
+
 void app_main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -72,6 +117,7 @@ void app_main(void)
 
     static uint8_t rx_packet[WMBUS_MAX_PACKET_BYTES];
     static uint8_t rx_bytes[WMBUS_MAX_ENCODED_BYTES];
+    static uint8_t rx_packet_stripped[WMBUS_MAX_PACKET_BYTES];
     wmbus_rx_result_t res = {
         .rx_packet = rx_packet,
         .rx_bytes = rx_bytes,
@@ -88,40 +134,17 @@ void app_main(void)
             continue;
         }
 
-        bool ok = (res.status == WMBUS_PKT_OK) && res.packet_size >= 8;
-        char manuf_hex[7] = {0};
-        char id_hex[9] = {0};
-        char device_address[17] = {0};
+        WmbusFrameInfo info = {0};
+        wmbus_extract_frame_info(res.rx_packet, res.packet_size, rx_packet_stripped, sizeof(rx_packet_stripped), &info);
+        log_packet_summary(&res, &info);
 
-        if (res.packet_size >= 8)
+        if (!info.parsed)
         {
-            snprintf(manuf_hex, sizeof(manuf_hex), "%02X%02X%02X", res.rx_packet[3], res.rx_packet[2], res.rx_packet[1]);
-            snprintf(id_hex, sizeof(id_hex), "%02X%02X%02X%02X", res.rx_packet[7], res.rx_packet[6], res.rx_packet[5], res.rx_packet[4]);
-            snprintf(device_address, sizeof(device_address), "%s%s", manuf_hex, id_hex);
+            ESP_LOGW(TAG, "Header parse failed");
         }
-
-        ESP_LOGI(TAG, "Packet %s: status=%u L=%u len(dec)=%u len(enc)=%u RSSI=%.1f LQI=%u marc=0x%02X pkt=0x%02X%s%s%s%s%s",
-                 ok ? "OK" : "ERR",
-                 res.status,
-                 res.rx_packet[0],
-                 res.packet_size,
-                 res.encoded_len,
-                 res.rssi_dbm,
-                 res.lqi,
-                 res.marc_state,
-                 res.pkt_status,
-                 (res.packet_size >= 8) ? " Manuf=" : "",
-                 (res.packet_size >= 8) ? manuf_hex : "",
-                 (res.packet_size >= 8) ? " ID=" : "",
-                 (res.packet_size >= 8) ? id_hex : "",
-                 ok ? "" : "");
-
-        if (!ok)
+        if (res.status != WMBUS_PKT_OK)
         {
-            log_hex("RAW(enc): ", res.rx_bytes, res.encoded_len, 16);
-            log_hex("RAW(dec): ", res.rx_packet, res.packet_size, 16);
-            ESP_LOGI(TAG, "Diag: marc=0x%02X pkt=0x%02X raw_rssi=0x%02X raw_lqi=0x%02X",
-                     res.marc_state, res.pkt_status, res.rssi_raw, res.lqi_raw);
+            log_diag(&res);
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
