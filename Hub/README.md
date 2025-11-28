@@ -26,6 +26,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 9000
 ## Health Check
 
 Auf `GET /` erhältst du eine kurze Health-Message (`{"status": "ok", ...}`), damit bei direktem Aufruf der Basis-URL etwas zurückkommt.
+`HEAD /` liefert `200 OK` mit Header `X-OMS-Status: alive`.
 
 ## Beispiel-Request (erwartetes Format)
 

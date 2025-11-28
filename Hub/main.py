@@ -3,7 +3,8 @@
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 
@@ -47,10 +48,23 @@ class OMSPayload(BaseModel):
         return self.payload_len if self.payload_len is not None else len(self.logical_hex) // 2
 
 
-@app.get("/")
-async def health() -> Dict[str, str]:
-    """Simple health endpoint to confirm the service is reachable."""
-    return {"status": "ok", "message": "OMS Hub is running"}
+@app.api_route("/", methods=["GET", "HEAD"], response_model=None)
+async def health(request: Request):
+    """Health endpoint to confirm the service is reachable."""
+    client = request.client.host if request.client else "-"
+    logger.info("Health %s from %s", request.method, client)
+    if request.method == "HEAD":
+        return Response(status_code=200, headers={"X-OMS-Status": "alive"})
+    return JSONResponse(
+        content={"status": "ok", "message": "OMS Hub is running"},
+        headers={"X-OMS-Status": "alive"},
+    )
+
+
+@app.head("/oms", include_in_schema=False)
+async def oms_head():
+    """Allow HEAD on /oms for simple liveness checks."""
+    return Response(status_code=200, headers={"X-OMS-Status": "alive"})
 
 
 @app.post("/oms")
