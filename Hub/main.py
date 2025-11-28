@@ -1,17 +1,10 @@
 """Minimal FastAPI application exposing a POST endpoint at /oms."""
+
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel, Field
-
-
-class OMSPayload(BaseModel):
-    order_id: str = Field(..., description="Unique identifier for the order or request")
-    data: Dict[str, Any] = Field(default_factory=dict, description="Arbitrary payload data")
-    source: Optional[str] = Field(
-        default=None, description="Optional source system identifier for the payload"
-    )
 
 
 logging.basicConfig(
@@ -20,32 +13,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger("oms-hub")
 
-app = FastAPI(title="OMS Hub", version="0.1.1")
+app = FastAPI(title="OMS Hub", version="0.1.1", description="A minimal OMS Hub API")
+
+
+class OMSPayload(BaseModel):
+    """Data structure describing an OMS payload; payload length is flexible."""
+
+    gateway: str = Field(..., description="Gateway identifier that received the frame")
+    status: int = Field(..., description="Status code reported by the gateway/device")
+    rssi: float = Field(..., description="Received signal strength indicator")
+    lqi: int = Field(..., description="Link quality indicator")
+    manuf: int = Field(..., description="Manufacturer identifier")
+    id: str = Field(
+        ...,
+        description='4-byte device identifier in hex, MSB->LSB (e.g. "01119360")',
+        pattern=r"^[0-9A-Fa-f]{8}$",
+    )
+    dev_type: int = Field(..., description="Device type")
+    version: int = Field(..., description="Firmware/protocol version")
+    ci: int = Field(..., description="Cluster identifier")
+    payload_len: Optional[int] = Field(
+        default=None, description="Length of payload bytes (optional, inferred if missing)"
+    )
+    logical_hex: str = Field(
+        ...,
+        description="Hex string of the CRC-free frame (arbitrary length)",
+        min_length=1,
+    )
+
+    @property
+    def inferred_payload_len(self) -> int:
+        """Return provided payload_len or infer from logical_hex length."""
+        return self.payload_len if self.payload_len is not None else len(self.logical_hex) // 2
+
+
+@app.get("/")
+async def health() -> Dict[str, str]:
+    """Simple health endpoint to confirm the service is reachable."""
+    return {"status": "ok", "message": "OMS Hub is running"}
 
 
 @app.post("/oms")
 async def handle_oms(payload: OMSPayload) -> Dict[str, Any]:
-    """
-    Accepts incoming OMS payloads and returns an acknowledgement.
-
-    In a real implementation this is where you would trigger downstream processing,
-    persist the payload, etc.
-    """
-    if not payload.order_id:
-        raise HTTPException(status_code=400, detail="order_id is required")
-
-    # Log the full incoming payload to the console for visibility.
-    logger.info("Received OMS payload: %s", payload.json())
+    """Accept a validated OMS payload, log it, and return an acknowledgement."""
+    logger.info("Received OMS payload:\n%s", payload.model_dump_json(indent=2))
 
     return {
         "status": "accepted",
-        "order_id": payload.order_id,
-        "received": payload.data,
-        "source": payload.source,
+        "received": payload.model_dump(),
+        "payload_len": payload.inferred_payload_len,
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)

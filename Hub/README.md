@@ -17,12 +17,34 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Der Endpoint ist anschließend unter `http://localhost:8000/oms` erreichbar.
+Der Endpoint ist anschließend unter `http://localhost:8000/oms` erreichbar. Wenn du einen anderen Port nutzen möchtest, gib ihn Uvicorn mit, z. B.:
 
-## Beispiel-Request
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 9000
+```
+
+## Health Check
+
+Auf `GET /` erhältst du eine kurze Health-Message (`{"status": "ok", ...}`), damit bei direktem Aufruf der Basis-URL etwas zurückkommt.
+
+## Beispiel-Request (erwartetes Format)
 
 ```bash
 curl -X POST http://localhost:8000/oms \
   -H "Content-Type: application/json" \
-  -d '{"order_id": "12345", "data": {"item": "abc"}, "source": "cli"}'
+  -d '{
+        "gateway": "gw-1",
+        "status": 0,
+        "rssi": -58,
+        "lqi": 200,
+        "manuf": 1234,
+        "id": "01119360",          # 4-Byte-ID als Hex-String, genau 8 Zeichen (MSB->LSB)
+        "dev_type": 1,
+        "version": 2,
+        "ci": 42,
+        "payload_len": 8,          # optional; wird falls fehlend aus logical_hex Länge/2 abgeleitet
+        "logical_hex": "0a0b0c0d0e0f"  # beliebige Länge
+      }'
 ```
+
+Das Backend erwartet dieses Schema; ungültige Requests führen zu 422. Die Antwort enthält das empfangene Objekt unter `received` und den abgeleiteten `payload_len`. Im Log wird die Payload formatiert als JSON ausgegeben.
