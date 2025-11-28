@@ -12,7 +12,7 @@
 #include "radio/cc1101_regs.h"
 #include "radio/radio_rx.h"
 #include "wmbus/packet.h"
-#include "wmbus/encoding_3of6.h"
+#include "wmbus/3of6.h"
 #include "radio/cc1101_hal.h"
 
 // This file mirrors the TI SWRA234A RX logic for CC1101 T-mode, with minimal deviations.
