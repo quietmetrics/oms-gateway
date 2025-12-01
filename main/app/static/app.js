@@ -2,6 +2,16 @@ const qs=(k)=>encodeURIComponent(k);
 let currentSsid='';
 let currentMode='client';
 
+// Manufacturer code (EN 13757-3) -> 3-letter string
+function manufCodeToString(code){
+  const c=Number(code||0)&0x7FFF;
+  const l1=((c >> 0) & 0x1F);
+  const l2=((c >> 5) & 0x1F);
+  const l3=((c >> 10)& 0x1F);
+  const toChar=(v)=> (v>=1 && v<=26) ? String.fromCharCode(64+v) : '?';
+  return `${toChar(l1)}${toChar(l2)}${toChar(l3)}`;
+}
+
 const DEVICE_TYPES={
   0x00:"Other",
   0x01:"Oil meter",
@@ -76,6 +86,49 @@ const deviceTypeName = (code) => {
   const num=Number(code);
   return DEVICE_TYPES[num]||`Unknown (${hex(num,2)})`;
 };
+
+const C_FIELD_MAP={
+  0x44:"SND-NR (uplink)",
+  0x46:"SND-IR (install)",
+  0x47:"ACC-NR (access)",
+  0x48:"ACC-DMD",
+  0x08:"RSP-UD",
+  0x18:"RSP-UD",
+  0x28:"RSP-UD",
+  0x38:"RSP-UD",
+  0x00:"ACK",
+  0x10:"ACK",
+  0x20:"ACK",
+  0x30:"ACK",
+  0x01:"NACK",
+  0x11:"NACK",
+  0x21:"NACK",
+  0x31:"NACK",
+  0x40:"SND-NKE",
+  0x06:"CNF-IR",
+  0x43:"SND-UD2",
+  0x53:"SND-UD",
+  0x73:"SND-UD",
+  0x5A:"REQ-UD1",
+  0x7A:"REQ-UD1",
+  0x5B:"REQ-UD2",
+  0x7B:"REQ-UD2"
+};
+const CI_FIELD_MAP={
+  0x72:"APL long header",
+  0x7A:"APL short header",
+  0x78:"No APL header",
+  0x70:"Application error",
+  0x71:"Alarm status",
+  0x50:"App reset/select",
+  0x51:"Master → meter data",
+  0x52:"Slave selection",
+  0x5A:"Command (short hdr)",
+  0x5B:"Command (long hdr)",
+  0x5C:"Sync action"
+};
+const cFieldName=(c)=>C_FIELD_MAP[Number(c)||0]||`Unknown (${hex(c,2)})`;
+const ciFieldName=(ci)=>CI_FIELD_MAP[Number(ci)||0]||`Unknown (${hex(ci,2)})`;
 
 function setBadge(id,valueId,text,state){
   const box=document.getElementById(id);
@@ -168,17 +221,30 @@ function renderPackets(list){
     const manufHex=hex(p.manuf||0,4);
     const ci=hex(p.ci||0,2);
     const devName=deviceTypeName(p.dev_type);
+    const manufStr=manufCodeToString(p.manuf);
+    const cName=cFieldName(p.control);
+    const ciName=ciFieldName(p.ci);
     const gw=p.gateway&&p.gateway.length?p.gateway:'-';
     tr.innerHTML=`
       <td>${gw}</td>
-      <td><span class="mono">${manufHex}</span></td>
+      <td>
+        <div class="dev-name">${cName}</div>
+        <div class="muted mono">${hex(p.control||0,2)}</div>
+      </td>
+      <td>
+        <div class="dev-name">${ciName}</div>
+        <div class="muted mono">${ci}</div>
+      </td>
+      <td>
+        <div class="dev-name">${manufStr}</div>
+        <div class="muted mono">${manufHex}</div>
+      </td>
       <td><span class="mono">${p.id||''}</span></td>
       <td>
         <div class="dev-name">${devName}</div>
         <div class="muted mono">${hex(p.dev_type||0,2)}</div>
       </td>
       <td class="mono">${p.version??''}</td>
-      <td class="mono">${ci}</td>
       <td class="mono">${(p.rssi??0).toFixed(1)} dBm</td>
       <td class="mono">${p.payload_len??0}</td>
       <td><span class="pill tiny ${p.whitelisted?'ok':'error'}">${p.whitelisted?'Yes':'No'}</span></td>`;

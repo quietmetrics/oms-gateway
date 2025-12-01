@@ -69,6 +69,7 @@ typedef struct
     char gateway[APP_HOSTNAME_MAX];
     uint16_t manuf;
     char id[9];
+    uint8_t control;
     uint8_t dev_type;
     uint8_t version;
     uint8_t ci;
@@ -109,6 +110,7 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     snprintf(e.id, sizeof(e.id), "%02X%02X%02X%02X",
              evt->frame_info.header.id[3], evt->frame_info.header.id[2],
              evt->frame_info.header.id[1], evt->frame_info.header.id[0]);
+    e.control = evt->frame_info.header.control;
     e.dev_type = evt->frame_info.header.device_type;
     e.version = evt->frame_info.header.version;
     e.ci = evt->frame_info.header.ci_field;
@@ -493,13 +495,14 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
             pos += snprintf(json + pos, json_cap - pos,
-                            "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"dev_type\":%u,"
+                            "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
                             "\"version\":%u,\"ci\":%u,\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                             "\"whitelisted\":%s}",
                             (i == 0) ? "" : ",",
                             p->gateway,
                             p->manuf,
                             p->id,
+                            p->control,
                             p->dev_type,
                             p->version,
                             p->ci,
