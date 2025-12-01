@@ -9,6 +9,8 @@ idf_component_register(
         "wmbus/pipeline.c"
         "app/wmbus/packet_router.c"
         "app/wmbus/whitelist.c"
+        "app/wmbus/frame_parse.c"
+        "app/wmbus/parsed_frame.h"
         "app/net/backend.c"
         "app/net/wifi.c"
         "app/radio/radio_config.c"

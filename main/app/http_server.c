@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include "app/net/backend.h"
 #include "app/net/wifi.h"
+#include "app/wmbus/frame_parse.h"
 #include "app/wmbus/whitelist.h"
 #include "app/wmbus/packet_router.h"
 #include "freertos/semphr.h"
@@ -55,17 +56,6 @@ static const icon_entry_t ICONS[] = {
     ICON_ENTRY(podcast),
 };
 
-// TPL header presence/type derived from CI-field
-typedef enum
-{
-    PKT_HDR_NONE = 0,  // no transport header after CI
-    PKT_HDR_SHORT = 1, // short TPL header (4 bytes: ACC/Status/Config|Signature)
-    PKT_HDR_LONG = 2   // long TPL header (12 bytes: ID/Man/Ver/Type/ACC/Status/Config|Signature)
-} pkt_hdr_type_t;
-
-static pkt_hdr_type_t classify_header(uint8_t ci);
-
-
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
 static services_state_t *s_services = NULL;
@@ -86,8 +76,13 @@ typedef struct
     uint8_t acc;
     uint8_t status;
     uint16_t cfg;
-    uint8_t hdr_type; // TPL header type
+    uint8_t hdr_type; // TPL header type (wmbus_tpl_header_type_t)
     bool has_tpl;
+    bool has_ell;
+    uint8_t ell_cc;
+    uint8_t ell_acc;
+    uint8_t ell_ext[8];
+    uint8_t ell_ext_len;
     float rssi;
     uint32_t payload_len;
     bool whitelisted;
@@ -132,8 +127,12 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     e.acc = 0;
     e.status = 0;
     e.cfg = 0;
-    e.hdr_type = PKT_HDR_NONE;
+    e.hdr_type = WMBUS_TPL_HDR_NONE;
     e.has_tpl = false;
+    e.has_ell = false;
+    e.ell_cc = 0;
+    e.ell_acc = 0;
+    e.ell_ext_len = 0;
     e.rssi = evt->rssi_dbm;
     e.payload_len = evt->frame_info.payload_len;
     if (evt->gateway_name)
@@ -164,37 +163,25 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     //     do not attempt to guess a TPL header layout.
     //
     // Parse TPL header (ACC/Status/Config|Signature) when available
-    const uint8_t *buf = evt->logical_packet;
-    uint16_t len = evt->logical_len;
-    if (buf && len >= 12)
+    wmbus_tpl_meta_t tpl = {0};
+    if (wmbus_parse_tpl_meta(&evt->frame_info, evt->logical_packet, evt->logical_len, &tpl))
     {
-        const pkt_hdr_type_t hdr = classify_header(e.ci);
-        const uint16_t idx_app = 11; // L,C,M(2),ID(4),Ver,Dev,CI = 11 bytes
-        uint16_t need = idx_app;
-        if (hdr == PKT_HDR_SHORT)
+        e.hdr_type = tpl.header_type;
+        e.acc = tpl.acc;
+        e.status = tpl.status;
+        e.cfg = tpl.cfg;
+        e.has_tpl = tpl.has_tpl;
+    }
+    wmbus_ell_meta_t ell = {0};
+    if (wmbus_parse_ell_meta(&evt->frame_info, evt->logical_packet, evt->logical_len, &ell))
+    {
+        e.has_ell = ell.has_ell;
+        e.ell_cc = ell.cc;
+        e.ell_acc = ell.acc;
+        e.ell_ext_len = ell.ext_len;
+        if (ell.ext_len)
         {
-            need += 4;
-        }
-        else if (hdr == PKT_HDR_LONG)
-        {
-            need += 12;
-        }
-        if (hdr != PKT_HDR_NONE && len >= need)
-        {
-            e.hdr_type = hdr;
-            if (hdr == PKT_HDR_SHORT)
-            {
-                e.acc = buf[idx_app + 0];
-                e.status = buf[idx_app + 1];
-                e.cfg = (uint16_t)buf[idx_app + 2] | ((uint16_t)buf[idx_app + 3] << 8);
-            }
-            else // long header
-            {
-                e.acc = buf[idx_app + 8];
-                e.status = buf[idx_app + 9];
-                e.cfg = (uint16_t)buf[idx_app + 10] | ((uint16_t)buf[idx_app + 11] << 8);
-            }
-            e.has_tpl = true;
+            memcpy(e.ell_ext, ell.ext, ell.ext_len);
         }
     }
 
@@ -219,25 +206,6 @@ static void http_pkt_sink(const WmbusPacketEvent *evt, void *user)
 {
     (void)user;
     http_server_record_packet(evt);
-}
-
-static pkt_hdr_type_t classify_header(uint8_t ci)
-{
-    switch (ci)
-    {
-    case 0x72:
-    case 0x73:
-    case 0x6B:
-    case 0x5B:
-        return PKT_HDR_LONG;
-    case 0x7A:
-    case 0x7B:
-    case 0x6A:
-    case 0x5A:
-        return PKT_HDR_SHORT;
-    default:
-        return PKT_HDR_NONE;
-    }
 }
 
 static uint16_t parse_hex16(const char *s)
@@ -580,11 +548,11 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
             const char *hdr = "none";
-            if (p->hdr_type == PKT_HDR_SHORT)
+            if (p->hdr_type == WMBUS_TPL_HDR_SHORT)
             {
                 hdr = "tpl_short";
             }
-            else if (p->hdr_type == PKT_HDR_LONG)
+            else if (p->hdr_type == WMBUS_TPL_HDR_LONG)
             {
                 hdr = "tpl_long";
             }
@@ -594,10 +562,24 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
             const char *status = p->has_tpl ? (snprintf(status_buf, sizeof(status_buf), "%u", p->status), status_buf) : "null";
             char cfg_buf[16];
             const char *cfg = p->has_tpl ? (snprintf(cfg_buf, sizeof(cfg_buf), "%u", p->cfg), cfg_buf) : "null";
+            char ell_ext_buf[20] = {0};
+            if (p->has_ell && p->ell_ext_len)
+            {
+                for (uint8_t j = 0; j < p->ell_ext_len && (j * 2 + 2) < sizeof(ell_ext_buf); j++)
+                {
+                    snprintf(ell_ext_buf + j * 2, sizeof(ell_ext_buf) - j * 2, "%02X", p->ell_ext[j]);
+                }
+            }
+            const char *ell_ext = (p->has_ell && p->ell_ext_len) ? ell_ext_buf : "null";
+            char ell_cc_buf[8];
+            const char *ell_cc = p->has_ell ? (snprintf(ell_cc_buf, sizeof(ell_cc_buf), "%u", p->ell_cc), ell_cc_buf) : "null";
+            char ell_acc_buf[8];
+            const char *ell_acc = p->has_ell ? (snprintf(ell_acc_buf, sizeof(ell_acc_buf), "%u", p->ell_acc), ell_acc_buf) : "null";
 
             pos += snprintf(json + pos, json_cap - pos,
                             "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
                             "\"version\":%u,\"ci\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                            "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
                             "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                             "\"whitelisted\":%s}",
                             (i == 0) ? "" : ",",
@@ -612,6 +594,9 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                             acc,
                             status,
                             cfg,
+                            ell_cc,
+                            ell_acc,
+                            ell_ext,
                             p->rssi,
                             p->payload_len,
                             p->whitelisted ? "true" : "false");

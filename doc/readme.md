@@ -56,6 +56,58 @@
 | --- | --- |
 | ![Enclosure open](img/ESP32C3_CC1101_installed.jpg) | ![Enclosure with lid](img/ESP32C3_CC1101.jpg) |
 
+### OMS Frame Handling (Layered)
+
+![](./img/)
+
+- Byte pipeline: PHY/3-of-6 decode → CRC removal → DLL+TPL header parse (`WmbusFrameInfo`).
+- Layer mapping: DLL = L/C; TPL = M/ID/Version/DeviceType/CI + ACC/Status/Config; APL = DIF/VIF/data. ELL/AFL are treated as security tunnels.
+- CI classes: TPL (0x72/7A/73/7B/6B/6A/69/5A/5B), ELL (0x8C/8E), AFL/security tunnel (0x90). Unknown CI leaves payload opaque.
+- Parsing helpers (`app/wmbus/frame_parse.*`):
+  - TPL header: short/long ACC/Status/Config only when CI defines a length.
+  - ELL header: CC/ACC and optional 8-byte EXT (0x8E).
+  - Security heuristic: ELL present → treat as encrypted tunnel; TPL Config/Signature ≠ 0 → likely encrypted; otherwise unencrypted/unknown.
+- Data model scaffold (`app/wmbus/parsed_frame.h`): raw logical bytes + TPL/ELL/security meta; APL parsing and decryption hook can be added later.
+- UI/monitor: shows CI class (SHORT/LONG/ELL/NONE), encryption status, and ELL/TPL meta in the detail modal; table stays lean.
+
+```mermaid
+flowchart TD
+    subgraph PHY_LAYER[PHY]
+      PHY[FSK + 3-of-6<br>Preamble/Sync]
+    end
+    subgraph DLL_LAYER[DLL]
+      DLL[L/C<br>CRC check]
+    end
+    subgraph TPL_LAYER[TPL]
+      RAW[CRC-free bytes<br>starting at L]
+      CI[CI classification]
+      TPL[Transport header<br>ACC / Status / Config]
+      ELL[Extended link<br>CC / ACC / EXT]
+      AFL[AFL 0x90<br>AFLL + payload offset]
+    end
+    subgraph APL_LAYER[APL]
+      APL[Application data<br>DIF/VIF/Data<br>or DLMS/SML]
+    end
+    subgraph IO_LAYER[IO]
+      UI[UI / Monitor<br>meta only]
+      Backend[Backend or MQTT<br>raw_hex + meta]
+    end
+
+    PHY --> DLL
+    DLL --> RAW
+    RAW --> CI
+    CI -->|TPL CI 72/7A/73/7B/6x/5x| TPL
+    CI -->|ELL CI 8C/8E| ELL
+    CI -->|AFL 0x90| AFL
+    CI -->|Unknown| UNKNOWN[Opaque payload]
+    TPL --> APL
+    ELL --> AFL
+    AFL --> UI
+    TPL --> UI
+    APL --> UI
+    RAW --> Backend
+```
+
 ### Current Status & Next Steps (checklist)
 - [x] Receive path operational; basic configuration possible.
 - [x] Helper layer: services + runtime; NVS-backed helpers for Wi-Fi creds/hostname, backend URL, whitelist, radio CS/sync.

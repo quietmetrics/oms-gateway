@@ -108,6 +108,16 @@ const catLabel = (cat)=>{
   return map[cat]||"Unknown";
 };
 
+// Short labels for CI based on parsed header
+const ciShortLabel = (p, ciName) => {
+  const ellPresent = (p.ell_cc!==undefined && p.ell_cc!==null) || (p.ell_ext!==undefined && p.ell_ext!==null && p.ell_ext!=="null");
+  if (ellPresent) return 'ELL';
+  if (p.hdr === 'tpl_short') return 'SHORT';
+  if (p.hdr === 'tpl_long') return 'LONG';
+  if (p.hdr === 'none') return 'NONE';
+  return shortLabel(ciName,'CI');
+};
+
 const C_FIELD_MAP={
   0x44:"SND-NR (uplink)",
   0x46:"SND-IR (install)",
@@ -139,6 +149,9 @@ const CI_FIELD_MAP={
   0x72:"TPL long header",
   0x7A:"TPL short header",
   0x78:"No TPL header",
+  0x8C:"ELL short header",
+  0x8E:"ELL extended header",
+  0x90:"AFL/Security tunnel",
   0x70:"Application error",
   0x71:"Alarm status",
   0x50:"App reset/select",
@@ -273,10 +286,9 @@ function renderPackets(list){
     const cName=cFieldName(p.control);
     const ciName=ciFieldName(p.ci);
     const cShort=shortLabel(cName,'C');
-    const ciShort=shortLabel(ciName,'CI');
-    const gw=p.gateway&&p.gateway.length?p.gateway:'-';
+    const ciShort=ciShortLabel(p, ciName);
+    const enc=encStatus(p);
     tr.innerHTML=`
-      <td>${gw}</td>
       <td>
         <div class="dev-name" title="${cName}">${cShort}</div>
         <div class="muted mono">${hex(p.control||0,2)}</div>
@@ -297,6 +309,7 @@ function renderPackets(list){
       <td class="mono">${p.version??''}</td>
       <td class="mono">${(p.rssi??0).toFixed(1)} dBm</td>
       <td class="mono">${p.payload_len??0}</td>
+      <td class="mono" title="${enc.hint}">${enc.label}</td>
       <td><span class="pill tiny ${p.whitelisted?'ok':'error'}">${p.whitelisted?'Yes':'No'}</span></td>`;
     tr.onclick=()=>showPacketModal(p);
     tbody.appendChild(tr);
@@ -324,45 +337,64 @@ function showPacketModal(p){
   const fabNumber=idStr ? idStr.slice(2) : '-';
   const cName=cFieldName(p.control);
   const ciName=ciFieldName(p.ci);
+  const ciShort=ciShortLabel(p, ciName);
   const statusVal = (p.status===null||p.status===undefined) ? null : p.status;
   const cfgVal = (p.cfg===null||p.cfg===undefined) ? null : p.cfg;
+  const ellCc = (p.ell_cc===null||p.ell_cc===undefined) ? null : p.ell_cc;
+  const ellAcc = (p.ell_acc===null||p.ell_acc===undefined) ? null : p.ell_acc;
+  const ellExt = (p.ell_ext===null||p.ell_ext===undefined||p.ell_ext==="null") ? null : p.ell_ext;
+  const enc = encStatus(p);
   title.textContent=`Packet ${p.id||''}`;
+  const buildItem = (label, value, isMono=false, titleTxt='')=>{
+    if(value===null || value===undefined) return '';
+    const v = value;
+    const cls = isMono ? 'mono' : '';
+    const t = titleTxt ? ` title="${titleTxt}"` : '';
+    return `<div class="list-item"><span class="muted">${label}</span><span class="${cls}"${t}>${v}</span></div>`;
+  };
+  const parsedItems = [
+    buildItem('Gateway', p.gateway||null),
+    buildItem('Manufacturer', manufStr || null),
+    buildItem('Fabrication block', fabBlock || null, true),
+    buildItem('Fabrication number', fabNumber || null, true),
+    buildItem('Version', p.version ?? null, true),
+    buildItem('Device', devName || null),
+    buildItem('OBIS Category', catText || null),
+    buildItem('C-Field', cName || null),
+    buildItem('CI', ciName ? `${ciName} (${ciShort})` : null),
+    buildItem('TPL Header', p.hdr || null, true),
+    buildItem('Access Number', (p.acc===null||p.acc===undefined)?null:p.acc, true),
+    buildItem('Status', statusVal===null?null:statusFlags(statusVal)),
+    buildItem('Config', cfgVal===null?null:hex(cfgVal,4)),
+    buildItem('Encryption', enc.label, true, enc.hint),
+    buildItem('ELL CC/ACC', (ellCc===null&&ellAcc===null)?null:`${ellCc===null?'-':ellCc}/${ellAcc===null?'-':ellAcc}`, true),
+    buildItem('ELL EXT', ellExt, true),
+    buildItem('Whitelisted', p.whitelisted?'Yes':'No')
+  ].filter(Boolean).join('');
+
+  const rawItems = [
+    buildItem('Manufacturer', manufHex, true),
+    buildItem('Fabrication block', fabBlock, true),
+    buildItem('Fabrication number', fabNumber, true),
+    buildItem('Device type', hex(p.dev_type||0,2), true),
+    buildItem('C-Field', hex(p.control||0,2), true),
+    buildItem('CI', hex(p.ci||0,2), true),
+    buildItem('Access Number', (p.acc===null||p.acc===undefined)?null:p.acc, true),
+    buildItem('Status', statusVal===null?null:hex(statusVal,2), true),
+    buildItem('Config', cfgVal===null?null:hex(cfgVal,4), true),
+    buildItem('RSSI', (p.rssi===null||p.rssi===undefined)?null:`${(p.rssi??0).toFixed(1)} dBm`, true),
+    buildItem('Payload length', p.payload_len??null, true)
+  ].filter(Boolean).join('');
+
   body.innerHTML=`
     <div class="modal-grid">
       <div class="modal-section">
         <h4>Raw</h4>
-        <div class="list">
-          <div class="list-item"><span class="muted">Manufacturer</span><span class="mono">${manufHex}</span></div>
-          <div class="list-item"><span class="muted">Fabrication block</span><span class="mono">${fabBlock}</span></div>
-          <div class="list-item"><span class="muted">Fabrication number</span><span class="mono">${fabNumber}</span></div>
-          <div class="list-item"><span class="muted">Device type</span><span class="mono">${hex(p.dev_type||0,2)}</span></div>
-          <div class="list-item"><span class="muted">C-Field</span><span class="mono">${hex(p.control||0,2)}</span></div>
-          <div class="list-item"><span class="muted">CI</span><span class="mono">${hex(p.ci||0,2)}</span></div>
-          <div class="list-item"><span class="muted">Access Number</span><span class="mono">${(p.acc===null||p.acc===undefined)?'-':p.acc}</span></div>
-          <div class="list-item"><span class="muted">Status</span><span class="mono">${statusVal===null?'-':hex(statusVal,2)}</span></div>
-          <div class="list-item"><span class="muted">Config</span><span class="mono">${cfgVal===null?'-':hex(cfgVal,4)}</span></div>
-          <div class="list-item"><span class="muted">RSSI</span><span class="mono">${(p.rssi??0).toFixed(1)} dBm</span></div>
-          <div class="list-item"><span class="muted">Payload length</span><span class="mono">${p.payload_len??0}</span></div>
-        </div>
+        <div class="list">${rawItems || '<div class="list-item"><span class="muted">No raw data</span></div>'}</div>
       </div>
       <div class="modal-section">
         <h4>Parsed</h4>
-        <div class="list">
-          <div class="list-item"><span class="muted">Gateway</span><span>${p.gateway||'-'}</span></div>
-          <div class="list-item"><span class="muted">Manufacturer</span><span>${manufStr}</span></div>
-          <div class="list-item"><span class="muted">Fabrication block</span><span class="mono">${fabBlock}</span></div>
-          <div class="list-item"><span class="muted">Fabrication number</span><span class="mono">${fabNumber}</span></div>
-          <div class="list-item"><span class="muted">Version</span><span class="mono">${p.version??'-'}</span></div>
-          <div class="list-item"><span class="muted">Device</span><span>${devName}</span></div>
-          <div class="list-item"><span class="muted">OBIS Category</span><span>${catText}</span></div>
-          <div class="list-item"><span class="muted">C-Field</span><span>${cName}</span></div>
-          <div class="list-item"><span class="muted">CI</span><span>${ciName}</span></div>
-          <div class="list-item"><span class="muted">TPL Header</span><span class="mono">${p.hdr||'none'}</span></div>
-          <div class="list-item"><span class="muted">Access Number</span><span class="mono">${(p.acc===null||p.acc===undefined)?'-':p.acc}</span></div>
-          <div class="list-item"><span class="muted">Status</span><span>${statusVal===null?'-':statusFlags(statusVal)}</span></div>
-          <div class="list-item"><span class="muted">Config</span><span>${cfgVal===null?'-':hex(cfgVal,4)}</span></div>
-          <div class="list-item"><span class="muted">Whitelisted</span><span>${p.whitelisted?'Yes':'No'}</span></div>
-        </div>
+        <div class="list">${parsedItems || '<div class="list-item"><span class="muted">No parsed data</span></div>'}</div>
       </div>
     </div>
   `;
@@ -516,3 +548,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
   showMode('client');
 });
+const encStatus = (p) => {
+  const hasTpl = p.hdr && p.hdr !== 'none';
+  const cfgNum = (p.cfg===null||p.cfg===undefined||p.cfg==="null") ? 0 : Number(p.cfg);
+  const ell = (p.ell_cc!==undefined && p.ell_cc!==null) || (p.ell_ext!==undefined && p.ell_ext!==null && p.ell_ext!=="null");
+  if (ell) return {label:'ELL', hint:'Extended Link Layer tunnel (treat payload as encrypted blob)'};
+  if (hasTpl && cfgNum > 0) return {label:'Encrypted', hint:'TPL Config/Signature indicates encryption'};
+  if (hasTpl) return {label:'Not encrypted', hint:'TPL present, Config/Signature is zero'};
+  return {label:'Unknown', hint:'No TPL/ELL info; payload treated as opaque'};
+};
