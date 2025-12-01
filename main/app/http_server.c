@@ -66,7 +66,12 @@ static bool s_backend_has_probe = false;
 
 typedef struct
 {
+    char gateway[APP_HOSTNAME_MAX];
+    uint16_t manuf;
     char id[9];
+    uint8_t dev_type;
+    uint8_t version;
+    uint8_t ci;
     float rssi;
     uint32_t payload_len;
     bool whitelisted;
@@ -89,7 +94,7 @@ static esp_err_t send_err(httpd_req_t *req, const char *code, const char *msg)
     return httpd_resp_sendstr(req, msg);
 }
 
-void http_server_record_packet(const WmbusPacketEvent *evt, bool whitelisted)
+void http_server_record_packet(const WmbusPacketEvent *evt)
 {
     if (!evt || !evt->frame_info.parsed)
     {
@@ -100,12 +105,30 @@ void http_server_record_packet(const WmbusPacketEvent *evt, bool whitelisted)
         return;
     }
     pkt_entry_t e = {0};
+    e.manuf = evt->frame_info.header.manufacturer_le;
     snprintf(e.id, sizeof(e.id), "%02X%02X%02X%02X",
              evt->frame_info.header.id[3], evt->frame_info.header.id[2],
              evt->frame_info.header.id[1], evt->frame_info.header.id[0]);
+    e.dev_type = evt->frame_info.header.device_type;
+    e.version = evt->frame_info.header.version;
+    e.ci = evt->frame_info.header.ci_field;
     e.rssi = evt->rssi_dbm;
     e.payload_len = evt->frame_info.payload_len;
-    e.whitelisted = whitelisted;
+    if (evt->gateway_name)
+    {
+        strlcpy(e.gateway, evt->gateway_name, sizeof(e.gateway));
+    }
+    else
+    {
+        e.gateway[0] = '\0';
+    }
+    bool allowed = false;
+    if (s_services)
+    {
+        const wmbus_whitelist_t *wl = services_whitelist(s_services);
+        allowed = wmbus_whitelist_contains(wl, e.manuf, evt->frame_info.header.id);
+    }
+    e.whitelisted = allowed;
 
     if (xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
@@ -127,8 +150,7 @@ void http_server_record_packet(const WmbusPacketEvent *evt, bool whitelisted)
 static void http_pkt_sink(const WmbusPacketEvent *evt, void *user)
 {
     (void)user;
-    // whitelisted flag is not known here; default false
-    http_server_record_packet(evt, false);
+    http_server_record_packet(evt);
 }
 
 static uint16_t parse_hex16(const char *s)
@@ -452,30 +474,49 @@ static esp_err_t handle_wl_del(httpd_req_t *req)
 
 static esp_err_t handle_packets_stream(httpd_req_t *req)
 {
-    char json[2048];
+    const size_t json_cap = 4096;
+    char *json = calloc(1, json_cap);
+    if (!json)
+    {
+        return httpd_resp_send_500(req);
+    }
     size_t pos = 0;
-    pos += snprintf(json + pos, sizeof(json) - pos, "{\"packets\":[");
+    pos += snprintf(json + pos, json_cap - pos, "{\"packets\":[");
     if (s_pkt_mutex && xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
-        for (size_t i = 0; i < s_pkt_count && pos < sizeof(json); i++)
+        size_t limit = s_pkt_count;
+        if (limit > 25)
+        {
+            limit = 25;
+        }
+        for (size_t i = 0; i < limit && pos < json_cap; i++)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
-            pos += snprintf(json + pos, sizeof(json) - pos,
-                            "%s{\"id\":\"%s\",\"rssi\":%.1f,\"payload_len\":%" PRIu32 ",\"whitelisted\":%s}",
+            pos += snprintf(json + pos, json_cap - pos,
+                            "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"dev_type\":%u,"
+                            "\"version\":%u,\"ci\":%u,\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
+                            "\"whitelisted\":%s}",
                             (i == 0) ? "" : ",",
+                            p->gateway,
+                            p->manuf,
                             p->id,
+                            p->dev_type,
+                            p->version,
+                            p->ci,
                             p->rssi,
                             p->payload_len,
                             p->whitelisted ? "true" : "false");
         }
         xSemaphoreGive(s_pkt_mutex);
     }
-    if (pos < sizeof(json))
+    if (pos < json_cap)
     {
-        pos += snprintf(json + pos, sizeof(json) - pos, "]}");
+        pos += snprintf(json + pos, json_cap - pos, "]}");
     }
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, json, pos);
+    esp_err_t r = httpd_resp_send(req, json, pos);
+    free(json);
+    return r;
 }
 
 static const httpd_uri_t URI_ROOT = {.uri = "/", .method = HTTP_GET, .handler = handle_root};

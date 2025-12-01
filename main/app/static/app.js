@@ -2,6 +2,81 @@ const qs=(k)=>encodeURIComponent(k);
 let currentSsid='';
 let currentMode='client';
 
+const DEVICE_TYPES={
+  0x00:"Other",
+  0x01:"Oil meter",
+  0x02:"Electricity meter",
+  0x03:"Gas meter",
+  0x04:"Heat meter (return)",
+  0x05:"Steam meter",
+  0x06:"Warm water meter",
+  0x07:"Water meter",
+  0x08:"Heat cost allocator",
+  0x09:"Compressed air meter",
+  0x0A:"Cooling meter (return)",
+  0x0B:"Cooling meter (flow)",
+  0x0C:"Heat meter (flow)",
+  0x0D:"Combined heat/cooling meter",
+  0x0E:"Bus/system component",
+  0x0F:"Unknown device type",
+  0x10:"Irrigation water meter",
+  0x11:"Water data logger",
+  0x12:"Gas data logger",
+  0x13:"Gas converter",
+  0x14:"Calorific value device",
+  0x15:"Hot water meter",
+  0x16:"Cold water meter",
+  0x17:"Dual hot/cold water meter",
+  0x18:"Pressure device",
+  0x19:"A/D converter",
+  0x1A:"Smoke alarm device",
+  0x1B:"Room sensor",
+  0x1C:"Gas detector",
+  0x1D:"Carbon monoxide alarm",
+  0x1E:"Heat alarm device",
+  0x1F:"Sensor device",
+  0x20:"Breaker (electricity)",
+  0x21:"Valve (gas/water)",
+  0x22:"Reserved switching 0x22",
+  0x23:"Reserved switching 0x23",
+  0x24:"Reserved switching 0x24",
+  0x25:"Customer display unit",
+  0x26:"Reserved customer 0x26",
+  0x27:"Reserved customer 0x27",
+  0x28:"Waste water meter",
+  0x29:"Garbage meter",
+  0x2A:"Reserved CO₂",
+  0x2B:"Reserved env. 0x2B",
+  0x2C:"Reserved env. 0x2C",
+  0x2D:"Reserved env. 0x2D",
+  0x2E:"Reserved env. 0x2E",
+  0x2F:"Reserved env. 0x2F",
+  0x30:"Reserved system 0x30",
+  0x31:"Communication controller",
+  0x32:"Unidirectional repeater",
+  0x33:"Bidirectional repeater",
+  0x34:"Reserved system 0x34",
+  0x35:"Reserved system 0x35",
+  0x36:"Radio converter (system)",
+  0x37:"Radio converter (meter)",
+  0x38:"Wired adapter",
+  0x39:"Reserved system 0x39",
+  0x3A:"Reserved system 0x3A",
+  0x3B:"Reserved system 0x3B",
+  0x3C:"Reserved system 0x3C",
+  0x3D:"Reserved system 0x3D",
+  0x3E:"Reserved system 0x3E",
+  0x3F:"Reserved system 0x3F",
+  0xFF:"Wildcard (search only)"
+};
+
+const hex = (n,len) => `0x${Number(n||0).toString(16).toUpperCase().padStart(len,'0')}`;
+const deviceTypeName = (code) => {
+  if(code===undefined||code===null) return 'Unknown';
+  const num=Number(code);
+  return DEVICE_TYPES[num]||`Unknown (${hex(num,2)})`;
+};
+
 function setBadge(id,valueId,text,state){
   const box=document.getElementById(id);
   const val=document.getElementById(valueId);
@@ -76,21 +151,40 @@ function renderWhitelist(entries){
 }
 
 function renderPackets(list){
-  const box=document.getElementById('pkt-list');
-  box.innerHTML='';
-  document.getElementById('card-monitor-sub').textContent=`${list?list.length:0} packets`;
+  const tbody=document.getElementById('pkt-body');
+  const empty=document.getElementById('pkt-empty');
+  if(!tbody||!empty) return;
+  tbody.innerHTML='';
+  const count = list ? list.length : 0;
+  document.getElementById('card-monitor-sub').textContent=`${count} packets`;
   if(!list||!list.length){
-    box.innerHTML='<div class="list-item"><span class="muted">No packets yet</span></div>';
+    empty.style.display='block';
     setCard('card-monitor','warn','No packets','sensors');
     return;
   }
+  empty.style.display='none';
   list.slice(0,20).forEach(p=>{
-    const div=document.createElement('div');
-    div.className='list-item';
-    div.innerHTML=`<div><div class="tag">${p.id}</div><div class="muted">RSSI ${p.rssi.toFixed(1)} | len ${p.payload_len}</div></div><div class="tag">${p.whitelisted?'whitelisted':'new'}</div>`;
-    box.appendChild(div);
+    const tr=document.createElement('tr');
+    const manufHex=hex(p.manuf||0,4);
+    const ci=hex(p.ci||0,2);
+    const devName=deviceTypeName(p.dev_type);
+    const gw=p.gateway&&p.gateway.length?p.gateway:'-';
+    tr.innerHTML=`
+      <td>${gw}</td>
+      <td><span class="mono">${manufHex}</span></td>
+      <td><span class="mono">${p.id||''}</span></td>
+      <td>
+        <div class="dev-name">${devName}</div>
+        <div class="muted mono">${hex(p.dev_type||0,2)}</div>
+      </td>
+      <td class="mono">${p.version??''}</td>
+      <td class="mono">${ci}</td>
+      <td class="mono">${(p.rssi??0).toFixed(1)} dBm</td>
+      <td class="mono">${p.payload_len??0}</td>
+      <td><span class="pill tiny ${p.whitelisted?'ok':'error'}">${p.whitelisted?'Yes':'No'}</span></td>`;
+    tbody.appendChild(tr);
   });
-  setCard('card-monitor','info',`${list.length} packets`,'sensors');
+  setCard('card-monitor','info',`${count} packets`,'sensors');
 }
 
 async function fetchJSON(path){

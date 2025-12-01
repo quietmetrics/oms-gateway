@@ -12,7 +12,6 @@
 #include "radio/cc1101_hal.h"
 #include "wmbus/pipeline.h"
 #include "wmbus/packet.h"
-#include "wmbus/device_types.h"
 #include "app/wmbus/packet_router.h"
 #include "app/wmbus/whitelist.h"
 #include "app/net/backend.h"
@@ -48,14 +47,10 @@ static void log_packet_summary(const wmbus_rx_result_t *res, const WmbusFrameInf
     snprintf(manuf_hex, sizeof(manuf_hex), "%02X%02X", (uint8_t)(info->header.manufacturer_le & 0xFF), (uint8_t)((info->header.manufacturer_le >> 8) & 0xFF));
     snprintf(id_hex, sizeof(id_hex), "%02X%02X%02X%02X", info->header.id[3], info->header.id[2], info->header.id[1], info->header.id[0]);
 
-    const oms_device_type_info_t *dev = oms_device_type_lookup(info->header.device_type);
-    const char *dev_name = dev ? dev->name : "unknown";
-
-    ESP_LOGI(TAG, "RX manuf=%s id=%s dev=0x%02X (%s) ver=0x%02X ci=0x%02X payload_len=%u rssi=%.1f",
+    ESP_LOGI(TAG, "RX manuf=%s id=%s dev=0x%02X ver=0x%02X ci=0x%02X payload_len=%u rssi=%.1f",
              manuf_hex,
              id_hex,
              info->header.device_type,
-             dev_name,
              info->header.version,
              info->header.ci_field,
              info->payload_len,

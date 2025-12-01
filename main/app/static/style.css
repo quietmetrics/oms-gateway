@@ -285,3 +285,47 @@ button:active { transform: translateY(1px); }
 .toast.success { border-color: #bbf7d0; color: #16a34a; }
 .toast.error { border-color: #fecdd3; color: var(--danger); }
 .toast.show { opacity: 1; transform: translateY(0); }
+
+.table-wrap {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: auto;
+  background: #fff;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.data-table th,
+.data-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.data-table th {
+  background: #f8fafc;
+  color: var(--muted);
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.mono { font-family: "SFMono-Regular","Consolas","Roboto Mono",monospace; }
+.dev-name { font-weight: 600; font-size: 12px; }
+.pill.tiny {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: #eef2f7;
+  color: var(--muted);
+}
+.pill.tiny.ok { background: #dcfce7; border-color: #bbf7d0; color: #15803d; }
+.pill.tiny.error { background: #fee2e2; border-color: #fecdd3; color: #b91c1c; }
