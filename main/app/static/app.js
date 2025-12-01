@@ -12,79 +12,100 @@ function manufCodeToString(code){
   return `${toChar(l1)}${toChar(l2)}${toChar(l3)}`;
 }
 
-const DEVICE_TYPES={
-  0x00:"Other",
-  0x01:"Oil meter",
-  0x02:"Electricity meter",
-  0x03:"Gas meter",
-  0x04:"Heat meter (return)",
-  0x05:"Steam meter",
-  0x06:"Warm water meter",
-  0x07:"Water meter",
-  0x08:"Heat cost allocator",
-  0x09:"Compressed air meter",
-  0x0A:"Cooling meter (return)",
-  0x0B:"Cooling meter (flow)",
-  0x0C:"Heat meter (flow)",
-  0x0D:"Combined heat/cooling meter",
-  0x0E:"Bus/system component",
-  0x0F:"Unknown device type",
-  0x10:"Irrigation water meter",
-  0x11:"Water data logger",
-  0x12:"Gas data logger",
-  0x13:"Gas converter",
-  0x14:"Calorific value device",
-  0x15:"Hot water meter",
-  0x16:"Cold water meter",
-  0x17:"Dual hot/cold water meter",
-  0x18:"Pressure device",
-  0x19:"A/D converter",
-  0x1A:"Smoke alarm device",
-  0x1B:"Room sensor",
-  0x1C:"Gas detector",
-  0x1D:"Carbon monoxide alarm",
-  0x1E:"Heat alarm device",
-  0x1F:"Sensor device",
-  0x20:"Breaker (electricity)",
-  0x21:"Valve (gas/water)",
-  0x22:"Reserved switching 0x22",
-  0x23:"Reserved switching 0x23",
-  0x24:"Reserved switching 0x24",
-  0x25:"Customer display unit",
-  0x26:"Reserved customer 0x26",
-  0x27:"Reserved customer 0x27",
-  0x28:"Waste water meter",
-  0x29:"Garbage meter",
-  0x2A:"Reserved CO₂",
-  0x2B:"Reserved env. 0x2B",
-  0x2C:"Reserved env. 0x2C",
-  0x2D:"Reserved env. 0x2D",
-  0x2E:"Reserved env. 0x2E",
-  0x2F:"Reserved env. 0x2F",
-  0x30:"Reserved system 0x30",
-  0x31:"Communication controller",
-  0x32:"Unidirectional repeater",
-  0x33:"Bidirectional repeater",
-  0x34:"Reserved system 0x34",
-  0x35:"Reserved system 0x35",
-  0x36:"Radio converter (system)",
-  0x37:"Radio converter (meter)",
-  0x38:"Wired adapter",
-  0x39:"Reserved system 0x39",
-  0x3A:"Reserved system 0x3A",
-  0x3B:"Reserved system 0x3B",
-  0x3C:"Reserved system 0x3C",
-  0x3D:"Reserved system 0x3D",
-  0x3E:"Reserved system 0x3E",
-  0x3F:"Reserved system 0x3F",
-  0xFF:"Wildcard (search only)"
+const DEVICE_META={
+  0x00:{name:"Other",cat:'F'},
+  0x01:{name:"Oil meter",cat:'F'},
+  0x02:{name:"Electricity meter",cat:'1'},
+  0x03:{name:"Gas meter",cat:'7'},
+  0x04:{name:"Heat meter (return)",cat:'6'},
+  0x05:{name:"Steam meter",cat:'F'},
+  0x06:{name:"Warm water meter",cat:'9'},
+  0x07:{name:"Water meter",cat:'8'},
+  0x08:{name:"Heat cost allocator",cat:'4'},
+  0x09:{name:"Compressed air meter",cat:'F'},
+  0x0A:{name:"Cooling meter (return)",cat:'5'},
+  0x0B:{name:"Cooling meter (flow)",cat:'5'},
+  0x0C:{name:"Heat meter (flow)",cat:'6'},
+  0x0D:{name:"Combined heat/cooling meter",cat:'6'},
+  0x0E:{name:"Bus/system component",cat:'E'},
+  0x0F:{name:"Unknown device type",cat:'F'},
+  0x10:{name:"Irrigation water meter",cat:'-'},
+  0x11:{name:"Water data logger",cat:'-'},
+  0x12:{name:"Gas data logger",cat:'-'},
+  0x13:{name:"Gas converter",cat:'-'},
+  0x14:{name:"Calorific value device",cat:'F'},
+  0x15:{name:"Hot water meter",cat:'9'},
+  0x16:{name:"Cold water meter",cat:'8'},
+  0x17:{name:"Dual hot/cold water meter",cat:'9'},
+  0x18:{name:"Pressure device",cat:'F'},
+  0x19:{name:"A/D converter",cat:'F'},
+  0x1A:{name:"Smoke alarm device",cat:'F'},
+  0x1B:{name:"Room sensor",cat:'F'},
+  0x1C:{name:"Gas detector",cat:'F'},
+  0x1D:{name:"Carbon monoxide alarm",cat:'F'},
+  0x1E:{name:"Heat alarm device",cat:'F'},
+  0x1F:{name:"Sensor device",cat:'F'},
+  0x20:{name:"Breaker (electricity)",cat:'F'},
+  0x21:{name:"Valve (gas/water)",cat:'F'},
+  0x22:{name:"Reserved switching 0x22",cat:'-'},
+  0x23:{name:"Reserved switching 0x23",cat:'-'},
+  0x24:{name:"Reserved switching 0x24",cat:'-'},
+  0x25:{name:"Customer display unit",cat:'E'},
+  0x26:{name:"Reserved customer 0x26",cat:'-'},
+  0x27:{name:"Reserved customer 0x27",cat:'-'},
+  0x28:{name:"Waste water meter",cat:'F'},
+  0x29:{name:"Garbage meter",cat:'F'},
+  0x2A:{name:"Reserved CO₂",cat:'F'},
+  0x2B:{name:"Reserved env. 0x2B",cat:'-'},
+  0x2C:{name:"Reserved env. 0x2C",cat:'-'},
+  0x2D:{name:"Reserved env. 0x2D",cat:'-'},
+  0x2E:{name:"Reserved env. 0x2E",cat:'-'},
+  0x2F:{name:"Reserved env. 0x2F",cat:'-'},
+  0x30:{name:"Reserved system 0x30",cat:'E'},
+  0x31:{name:"Communication controller",cat:'E'},
+  0x32:{name:"Unidirectional repeater",cat:'E'},
+  0x33:{name:"Bidirectional repeater",cat:'E'},
+  0x34:{name:"Reserved system 0x34",cat:'E'},
+  0x35:{name:"Reserved system 0x35",cat:'E'},
+  0x36:{name:"Radio converter (system)",cat:'E'},
+  0x37:{name:"Radio converter (meter)",cat:'E'},
+  0x38:{name:"Wired adapter",cat:'E'},
+  0x39:{name:"Reserved system 0x39",cat:'E'},
+  0x3A:{name:"Reserved system 0x3A",cat:'E'},
+  0x3B:{name:"Reserved system 0x3B",cat:'E'},
+  0x3C:{name:"Reserved system 0x3C",cat:'E'},
+  0x3D:{name:"Reserved system 0x3D",cat:'E'},
+  0x3E:{name:"Reserved system 0x3E",cat:'E'},
+  0x3F:{name:"Reserved system 0x3F",cat:'E'},
+  0xFF:{name:"Wildcard (search only)",cat:'-'}
 };
 
 const hex = (n,len) => `0x${Number(n||0).toString(16).toUpperCase().padStart(len,'0')}`;
 const deviceTypeName = (code) => {
   if(code===undefined||code===null) return 'Unknown';
   const num=Number(code);
-  return DEVICE_TYPES[num]||`Unknown (${hex(num,2)})`;
+  const meta=DEVICE_META[num];
+  return meta ? meta.name : `Unknown (${hex(num,2)})`;
+};
+const deviceCategory = (code) => {
+  const num=Number(code);
+  const cat=DEVICE_META[num]?.cat;
+  return cat||'-';
+};
+const catLabel = (cat)=>{
+  const map={
+    '1':"Electricity",
+    '4':"Heat cost alloc.",
+    '5':"Cooling",
+    '6':"Heat",
+    '7':"Gas",
+    '8':"Water",
+    '9':"Warm/Hot water",
+    'E':"System/infra",
+    'F':"Other",
+    '-':"Unknown"
+  };
+  return map[cat]||"Unknown";
 };
 
 const C_FIELD_MAP={
@@ -115,9 +136,9 @@ const C_FIELD_MAP={
   0x7B:"REQ-UD2"
 };
 const CI_FIELD_MAP={
-  0x72:"APL long header",
-  0x7A:"APL short header",
-  0x78:"No APL header",
+  0x72:"TPL long header",
+  0x7A:"TPL short header",
+  0x78:"No TPL header",
   0x70:"Application error",
   0x71:"Alarm status",
   0x50:"App reset/select",
@@ -129,6 +150,33 @@ const CI_FIELD_MAP={
 };
 const cFieldName=(c)=>C_FIELD_MAP[Number(c)||0]||`Unknown (${hex(c,2)})`;
 const ciFieldName=(ci)=>CI_FIELD_MAP[Number(ci)||0]||`Unknown (${hex(ci,2)})`;
+const shortLabel = (txt, fallback) =>{
+  if(!txt) return fallback||'-';
+  // take token before space or "(" to keep it terse
+  const m = txt.match(/^([A-Z0-9\\-]+)/i);
+  return m ? m[1].toUpperCase() : (fallback||txt);
+};
+const cFieldClass=(c)=>{
+  const v=Number(c)||0;
+  if([0x44,0x47,0x48,0x08,0x18,0x28,0x38].includes(v)) return 'data';
+  if([0x00,0x10,0x20,0x30].includes(v)) return 'ok';
+  if([0x01,0x11,0x21,0x31,0x40].includes(v)) return 'err';
+  if([0x46].includes(v)) return 'ctrl';
+  return 'gray';
+};
+const ciFieldClass=(ci)=>{
+  const v=Number(ci)||0;
+  if([0x72,0x7A,0x73,0x7B,0x6B,0x6A,0x69].includes(v)) return 'data';
+  if([0x70,0x71].includes(v)) return 'ctrl';
+  return 'gray';
+};
+const statusFlags = (s) => {
+  const flags=[];
+  if(s & 0x04) flags.push('Low batt');
+  if(s & 0x08) flags.push('Error');
+  if(s & 0x10) flags.push('Temp err');
+  return flags.length ? flags.join(', ') : 'OK';
+};
 
 function setBadge(id,valueId,text,state){
   const box=document.getElementById(id);
@@ -224,15 +272,17 @@ function renderPackets(list){
     const manufStr=manufCodeToString(p.manuf);
     const cName=cFieldName(p.control);
     const ciName=ciFieldName(p.ci);
+    const cShort=shortLabel(cName,'C');
+    const ciShort=shortLabel(ciName,'CI');
     const gw=p.gateway&&p.gateway.length?p.gateway:'-';
     tr.innerHTML=`
       <td>${gw}</td>
       <td>
-        <div class="dev-name">${cName}</div>
+        <div class="dev-name" title="${cName}">${cShort}</div>
         <div class="muted mono">${hex(p.control||0,2)}</div>
       </td>
       <td>
-        <div class="dev-name">${ciName}</div>
+        <div class="dev-name" title="${ciName}">${ciShort}</div>
         <div class="muted mono">${ci}</div>
       </td>
       <td>
@@ -248,9 +298,75 @@ function renderPackets(list){
       <td class="mono">${(p.rssi??0).toFixed(1)} dBm</td>
       <td class="mono">${p.payload_len??0}</td>
       <td><span class="pill tiny ${p.whitelisted?'ok':'error'}">${p.whitelisted?'Yes':'No'}</span></td>`;
+    tr.onclick=()=>showPacketModal(p);
     tbody.appendChild(tr);
   });
   setCard('card-monitor','info',`${count} packets`,'sensors');
+}
+
+function closePacketModal(){
+  const modal=document.getElementById('pkt-modal');
+  if(modal) modal.classList.add('hidden');
+}
+
+function showPacketModal(p){
+  const modal=document.getElementById('pkt-modal');
+  const body=document.getElementById('pkt-details');
+  const title=document.getElementById('pkt-title');
+  if(!modal||!body||!title) return;
+  const manufStr=manufCodeToString(p.manuf);
+  const manufHex=hex(p.manuf||0,4);
+  const devName=deviceTypeName(p.dev_type);
+  const cat=deviceCategory(p.dev_type);
+  const catText=`${cat} (${catLabel(cat)})`;
+  const idStr=p.id||'';
+  const fabBlock=idStr ? idStr.slice(0,2) : '-';
+  const fabNumber=idStr ? idStr.slice(2) : '-';
+  const cName=cFieldName(p.control);
+  const ciName=ciFieldName(p.ci);
+  const statusVal = (p.status===null||p.status===undefined) ? null : p.status;
+  const cfgVal = (p.cfg===null||p.cfg===undefined) ? null : p.cfg;
+  title.textContent=`Packet ${p.id||''}`;
+  body.innerHTML=`
+    <div class="modal-grid">
+      <div class="modal-section">
+        <h4>Raw</h4>
+        <div class="list">
+          <div class="list-item"><span class="muted">Manufacturer</span><span class="mono">${manufHex}</span></div>
+          <div class="list-item"><span class="muted">Fabrication block</span><span class="mono">${fabBlock}</span></div>
+          <div class="list-item"><span class="muted">Fabrication number</span><span class="mono">${fabNumber}</span></div>
+          <div class="list-item"><span class="muted">Device type</span><span class="mono">${hex(p.dev_type||0,2)}</span></div>
+          <div class="list-item"><span class="muted">C-Field</span><span class="mono">${hex(p.control||0,2)}</span></div>
+          <div class="list-item"><span class="muted">CI</span><span class="mono">${hex(p.ci||0,2)}</span></div>
+          <div class="list-item"><span class="muted">Access Number</span><span class="mono">${(p.acc===null||p.acc===undefined)?'-':p.acc}</span></div>
+          <div class="list-item"><span class="muted">Status</span><span class="mono">${statusVal===null?'-':hex(statusVal,2)}</span></div>
+          <div class="list-item"><span class="muted">Config</span><span class="mono">${cfgVal===null?'-':hex(cfgVal,4)}</span></div>
+          <div class="list-item"><span class="muted">RSSI</span><span class="mono">${(p.rssi??0).toFixed(1)} dBm</span></div>
+          <div class="list-item"><span class="muted">Payload length</span><span class="mono">${p.payload_len??0}</span></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h4>Parsed</h4>
+        <div class="list">
+          <div class="list-item"><span class="muted">Gateway</span><span>${p.gateway||'-'}</span></div>
+          <div class="list-item"><span class="muted">Manufacturer</span><span>${manufStr}</span></div>
+          <div class="list-item"><span class="muted">Fabrication block</span><span class="mono">${fabBlock}</span></div>
+          <div class="list-item"><span class="muted">Fabrication number</span><span class="mono">${fabNumber}</span></div>
+          <div class="list-item"><span class="muted">Version</span><span class="mono">${p.version??'-'}</span></div>
+          <div class="list-item"><span class="muted">Device</span><span>${devName}</span></div>
+          <div class="list-item"><span class="muted">OBIS Category</span><span>${catText}</span></div>
+          <div class="list-item"><span class="muted">C-Field</span><span>${cName}</span></div>
+          <div class="list-item"><span class="muted">CI</span><span>${ciName}</span></div>
+          <div class="list-item"><span class="muted">TPL Header</span><span class="mono">${p.hdr||'none'}</span></div>
+          <div class="list-item"><span class="muted">Access Number</span><span class="mono">${(p.acc===null||p.acc===undefined)?'-':p.acc}</span></div>
+          <div class="list-item"><span class="muted">Status</span><span>${statusVal===null?'-':statusFlags(statusVal)}</span></div>
+          <div class="list-item"><span class="muted">Config</span><span>${cfgVal===null?'-':hex(cfgVal,4)}</span></div>
+          <div class="list-item"><span class="muted">Whitelisted</span><span>${p.whitelisted?'Yes':'No'}</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.classList.remove('hidden');
 }
 
 async function fetchJSON(path){

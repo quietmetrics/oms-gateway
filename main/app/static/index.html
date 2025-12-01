@@ -144,7 +144,7 @@
       </section>
     </div>
     <section class="card" style="margin-top:12px;">
-      <h2>Recent Packets</h2>
+      <h2>Packet Monitor</h2>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -167,6 +167,16 @@
       <div id="pkt-empty" class="muted" style="margin-top:8px;">No packets yet</div>
     </section>
   </main>
+  <div id="pkt-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" onclick="closePacketModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="pkt-title">Packet</h3>
+        <button class="icon-btn close-btn" onclick="closePacketModal()" aria-label="Close">×</button>
+      </div>
+      <div id="pkt-details" class="modal-body"></div>
+    </div>
+  </div>
   <script src="/static/app.js"></script>
 </body>
 

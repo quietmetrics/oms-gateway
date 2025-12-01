@@ -329,3 +329,63 @@ button:active { transform: translateY(1px); }
 }
 .pill.tiny.ok { background: #dcfce7; border-color: #bbf7d0; color: #15803d; }
 .pill.tiny.error { background: #fee2e2; border-color: #fecdd3; color: #b91c1c; }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.modal.hidden { display: none; }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(2px);
+}
+.modal-content {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 36px rgba(0,0,0,0.15);
+  width: min(620px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 16px;
+  z-index: 1;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.modal-body .list {
+  margin-top: 0;
+}
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.modal-section h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #f3f4f6;
+  color: var(--fg);
+  font-size: 16px;
+  padding: 0;
+  box-shadow: none;
+}
+.close-btn:active { transform: translateY(0); }

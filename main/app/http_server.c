@@ -55,6 +55,16 @@ static const icon_entry_t ICONS[] = {
     ICON_ENTRY(podcast),
 };
 
+// TPL header presence/type derived from CI-field
+typedef enum
+{
+    PKT_HDR_NONE = 0,  // no transport header after CI
+    PKT_HDR_SHORT = 1, // short TPL header (4 bytes: ACC/Status/Config|Signature)
+    PKT_HDR_LONG = 2   // long TPL header (12 bytes: ID/Man/Ver/Type/ACC/Status/Config|Signature)
+} pkt_hdr_type_t;
+
+static pkt_hdr_type_t classify_header(uint8_t ci);
+
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
@@ -73,6 +83,11 @@ typedef struct
     uint8_t dev_type;
     uint8_t version;
     uint8_t ci;
+    uint8_t acc;
+    uint8_t status;
+    uint16_t cfg;
+    uint8_t hdr_type; // TPL header type
+    bool has_tpl;
     float rssi;
     uint32_t payload_len;
     bool whitelisted;
@@ -114,6 +129,11 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     e.dev_type = evt->frame_info.header.device_type;
     e.version = evt->frame_info.header.version;
     e.ci = evt->frame_info.header.ci_field;
+    e.acc = 0;
+    e.status = 0;
+    e.cfg = 0;
+    e.hdr_type = PKT_HDR_NONE;
+    e.has_tpl = false;
     e.rssi = evt->rssi_dbm;
     e.payload_len = evt->frame_info.payload_len;
     if (evt->gateway_name)
@@ -131,6 +151,52 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
         allowed = wmbus_whitelist_contains(wl, e.manuf, evt->frame_info.header.id);
     }
     e.whitelisted = allowed;
+
+    // Layer mapping (per OMS/EN13757):
+    //   DLL: L + C are part of the data link layer.
+    //   TPL: M/ID/Ver/Dev/CI + ACC/Status/Config belong to the transport layer.
+    //   APL: DIF/VIF/data follows after the TPL header.
+    //
+    // TPL header handling:
+    //   - The TPL header after CI (ACC/Status/Config, long header also repeats ID/M/Ver/Dev)
+    //     is only interpreted when CI has a known header length (short/long/none).
+    //   - Unknown CI values leave everything after CI opaque; we forward the raw bytes and
+    //     do not attempt to guess a TPL header layout.
+    //
+    // Parse TPL header (ACC/Status/Config|Signature) when available
+    const uint8_t *buf = evt->logical_packet;
+    uint16_t len = evt->logical_len;
+    if (buf && len >= 12)
+    {
+        const pkt_hdr_type_t hdr = classify_header(e.ci);
+        const uint16_t idx_app = 11; // L,C,M(2),ID(4),Ver,Dev,CI = 11 bytes
+        uint16_t need = idx_app;
+        if (hdr == PKT_HDR_SHORT)
+        {
+            need += 4;
+        }
+        else if (hdr == PKT_HDR_LONG)
+        {
+            need += 12;
+        }
+        if (hdr != PKT_HDR_NONE && len >= need)
+        {
+            e.hdr_type = hdr;
+            if (hdr == PKT_HDR_SHORT)
+            {
+                e.acc = buf[idx_app + 0];
+                e.status = buf[idx_app + 1];
+                e.cfg = (uint16_t)buf[idx_app + 2] | ((uint16_t)buf[idx_app + 3] << 8);
+            }
+            else // long header
+            {
+                e.acc = buf[idx_app + 8];
+                e.status = buf[idx_app + 9];
+                e.cfg = (uint16_t)buf[idx_app + 10] | ((uint16_t)buf[idx_app + 11] << 8);
+            }
+            e.has_tpl = true;
+        }
+    }
 
     if (xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
@@ -153,6 +219,25 @@ static void http_pkt_sink(const WmbusPacketEvent *evt, void *user)
 {
     (void)user;
     http_server_record_packet(evt);
+}
+
+static pkt_hdr_type_t classify_header(uint8_t ci)
+{
+    switch (ci)
+    {
+    case 0x72:
+    case 0x73:
+    case 0x6B:
+    case 0x5B:
+        return PKT_HDR_LONG;
+    case 0x7A:
+    case 0x7B:
+    case 0x6A:
+    case 0x5A:
+        return PKT_HDR_SHORT;
+    default:
+        return PKT_HDR_NONE;
+    }
 }
 
 static uint16_t parse_hex16(const char *s)
@@ -494,9 +579,26 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
         for (size_t i = 0; i < limit && pos < json_cap; i++)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
+            const char *hdr = "none";
+            if (p->hdr_type == PKT_HDR_SHORT)
+            {
+                hdr = "tpl_short";
+            }
+            else if (p->hdr_type == PKT_HDR_LONG)
+            {
+                hdr = "tpl_long";
+            }
+            char acc_buf[12];
+            const char *acc = p->has_tpl ? (snprintf(acc_buf, sizeof(acc_buf), "%u", p->acc), acc_buf) : "null";
+            char status_buf[12];
+            const char *status = p->has_tpl ? (snprintf(status_buf, sizeof(status_buf), "%u", p->status), status_buf) : "null";
+            char cfg_buf[16];
+            const char *cfg = p->has_tpl ? (snprintf(cfg_buf, sizeof(cfg_buf), "%u", p->cfg), cfg_buf) : "null";
+
             pos += snprintf(json + pos, json_cap - pos,
                             "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
-                            "\"version\":%u,\"ci\":%u,\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
+                            "\"version\":%u,\"ci\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                            "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                             "\"whitelisted\":%s}",
                             (i == 0) ? "" : ",",
                             p->gateway,
@@ -506,6 +608,10 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                             p->dev_type,
                             p->version,
                             p->ci,
+                            hdr,
+                            acc,
+                            status,
+                            cfg,
                             p->rssi,
                             p->payload_len,
                             p->whitelisted ? "true" : "false");

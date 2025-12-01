@@ -34,10 +34,10 @@ typedef struct
 {
     uint8_t length;          // L-field: number of bytes after this field (CRC excluded)
     uint8_t control;         // C-field: link-layer control (e.g., 0x44 = SND-NR)
-    uint16_t manufacturer_le;// M-field in little-endian as transmitted on air
-    uint8_t id[4];           // Identification number (BCD-coded, least significant byte first)
-    uint8_t version;         // Version / production code
-    uint8_t device_type;     // Device type / medium
+    uint16_t manufacturer_le;// M-field in little-endian as transmitted on air (DIN: Manufacturer ID)
+    uint8_t id[4];           // Identification number (BCD-coded, least significant byte first) (DIN: Fabrication Number)
+    uint8_t version;         // Version / production code (DIN: Fabrication Block)
+    uint8_t device_type;     // Device type / medium (maps to OBIS category per EN 13757-7/OMS)
     uint8_t ci_field;        // CI-field selecting the application-layer format
     uint8_t payload[];       // Remainder of frame (access number/status/security/application data)
 } WmbusFrameHeaderRaw;
