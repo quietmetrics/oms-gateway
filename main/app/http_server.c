@@ -517,14 +517,13 @@ static esp_err_t handle_wl_del(httpd_req_t *req)
 
 static esp_err_t handle_packets_stream(httpd_req_t *req)
 {
-    const size_t json_cap = 4096;
-    char *json = calloc(1, json_cap);
-    if (!json)
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const char *start = "{\"packets\":[";
+    if (httpd_resp_send_chunk(req, start, strlen(start)) != ESP_OK)
     {
-        return httpd_resp_send_500(req);
+        return ESP_FAIL;
     }
-    size_t pos = 0;
-    pos += snprintf(json + pos, json_cap - pos, "{\"packets\":[");
     if (s_pkt_mutex && xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
         size_t limit = s_pkt_count;
@@ -532,7 +531,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
         {
             limit = 25;
         }
-        for (size_t i = 0; i < limit && pos < json_cap; i++)
+        for (size_t i = 0; i < limit; i++)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
             const char *hdr = "none";
@@ -571,52 +570,57 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
             const char *afl_tag = p->frame.afl.has_afl ? (snprintf(afl_tag_buf, sizeof(afl_tag_buf), "%u", p->frame.afl.afl.tag), afl_tag_buf) : "null";
             char afl_afll_buf[8];
             const char *afl_afll = p->frame.afl.has_afl ? (snprintf(afl_afll_buf, sizeof(afl_afll_buf), "%u", p->frame.afl.afl.afll), afl_afll_buf) : "null";
-
-            pos += snprintf(json + pos, json_cap - pos,
-                            "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
-                            "\"version\":%u,\"ci\":%u,\"ci_class\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
-                            "\"sec_mode\":%s,\"sec_len\":%s,\"encrypted\":%s,"
-                            "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
-                            "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
-                            "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
-                            "\"whitelisted\":%s}",
-                            (i == 0) ? "" : ",",
-                            p->frame.dll.gateway,
-                            p->frame.dll.manuf,
-                            p->frame.dll.id_str,
-                            p->frame.dll.c,
-                            p->frame.dll.dev_type,
-                            p->frame.dll.version,
-                            p->frame.dll.ci,
-                            p->frame.ci_class,
-                            hdr,
-                            acc,
-                            status,
-                            cfg,
-                            sec_mode,
-                            sec_len,
-                            p->frame.encrypted ? "true" : "false",
-                            ell_cc,
-                            ell_acc,
-                            ell_ext,
-                            afl_tag,
-                            afl_afll,
-                            p->frame.afl.afl.offset,
-                            p->frame.afl.afl.payload_len,
-                            p->rssi,
-                            p->payload_len,
-                            p->whitelisted ? "true" : "false");
+            char entry[512];
+            int written = snprintf(entry, sizeof(entry),
+                                   "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
+                                   "\"version\":%u,\"ci\":%u,\"ci_class\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                                   "\"sec_mode\":%s,\"sec_len\":%s,\"encrypted\":%s,"
+                                   "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
+                                   "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
+                                   "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
+                                   "\"whitelisted\":%s}",
+                                   (i == 0) ? "" : ",",
+                                   p->frame.dll.gateway,
+                                   p->frame.dll.manuf,
+                                   p->frame.dll.id_str,
+                                   p->frame.dll.c,
+                                   p->frame.dll.dev_type,
+                                   p->frame.dll.version,
+                                   p->frame.dll.ci,
+                                   p->frame.ci_class,
+                                   hdr,
+                                   acc,
+                                   status,
+                                   cfg,
+                                   sec_mode,
+                                   sec_len,
+                                   p->frame.encrypted ? "true" : "false",
+                                   ell_cc,
+                                   ell_acc,
+                                   ell_ext,
+                                   afl_tag,
+                                   afl_afll,
+                                   p->frame.afl.afl.offset,
+                                   p->frame.afl.afl.payload_len,
+                                   p->rssi,
+                                   p->payload_len,
+                                   p->whitelisted ? "true" : "false");
+            if (written < 0)
+            {
+                continue;
+            }
+            // Ensure chunked send does not include truncated garbage
+            entry[sizeof(entry) - 1] = '\0';
+            if (httpd_resp_send_chunk(req, entry, strlen(entry)) != ESP_OK)
+            {
+                break;
+            }
         }
         xSemaphoreGive(s_pkt_mutex);
     }
-    if (pos < json_cap)
-    {
-        pos += snprintf(json + pos, json_cap - pos, "]}");
-    }
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t r = httpd_resp_send(req, json, pos);
-    free(json);
-    return r;
+    const char *end = "]}";
+    httpd_resp_send_chunk(req, end, strlen(end));
+    return httpd_resp_send_chunk(req, NULL, 0);
 }
 
 static const httpd_uri_t URI_ROOT = {.uri = "/", .method = HTTP_GET, .handler = handle_root};
