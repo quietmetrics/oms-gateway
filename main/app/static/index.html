@@ -60,87 +60,111 @@
     </div>
     <div class="grid">
       <section class="card">
-        <h2>Network</h2>
-        <label>Hostname</label><input id="hostname" placeholder="oms-gateway" />
-        <div style="margin-top:8px;">
-          <button class="primary" onclick="saveHostname()" type="button">Save Hostname</button>
+        <div class="card-head">
+          <h2>Network</h2>
+          <button id="btn-network-collapse" class="collapse-btn" aria-label="Toggle Network" aria-expanded="true"
+            onclick="toggleCard('network-body','btn-network-collapse')">▾</button>
         </div>
-        <div class="segmented">
-          <button id="btn-client" class="seg-btn active" onclick="showMode('client')">Client</button>
-          <button id="btn-ap" class="seg-btn" onclick="showMode('ap')">Access Point</button>
-        </div>
-        <form id="wifi-form" style="display:none">
-          <input type="text" autocomplete="username" style="display:none" aria-hidden="true" />
-        </form>
-        <div id="client-form" class="mode-block">
-          <div class="column" style="margin-top:10px;">
-            <div><label>SSID</label><input id="wifi-ssid" placeholder="" /></div>
-            <div><label>Password</label><input id="wifi-pass" type="password" placeholder="" form="wifi-form"
-                autocomplete="new-password" /></div>
+        <div class="card-body" id="network-body">
+          <label>Hostname</label><input id="hostname" placeholder="oms-gateway" />
+          <div style="margin-top:8px;">
+            <button class="primary" onclick="saveHostname()" type="button">Save Hostname</button>
           </div>
-          <button class="primary" style="margin-top:12px;" onclick="saveNetwork()">Save</button>
-        </div>
-        <form id="ap-form-hidden" style="display:none">
-          <input type="text" autocomplete="username" style="display:none" aria-hidden="true" />
-        </form>
-        <div id="ap-form" class="mode-block" style="display:none;">
-          <div class="column" style="margin-top:10px;">
-            <div><label>SSID</label><input id="ap-ssid" placeholder="oms-ap" /></div>
-            <div><label>Password</label><input id="ap-pass" type="password" placeholder="optional" form="ap-form-hidden"
-                autocomplete="new-password" /></div>
+          <div class="segmented">
+            <button id="btn-client" class="seg-btn active" onclick="showMode('client')">Client</button>
+            <button id="btn-ap" class="seg-btn" onclick="showMode('ap')">Access Point</button>
           </div>
-          <button class="primary" style="margin-top:12px;" onclick="saveAp()">Save</button>
-        </div>
-        <div class="list" style="margin-top:8px;">
-          <div class="list-item"><span class="muted">RSSI</span><span id="wifi-rssi">-</span></div>
-          <div class="list-item"><span class="muted">IP</span><span id="wifi-ip">-</span></div>
-          <div class="list-item"><span class="muted">Gateway</span><span id="wifi-gw">-</span></div>
-          <div class="list-item"><span class="muted">DNS</span><span id="wifi-dns">-</span></div>
+          <form id="wifi-form" style="display:none">
+            <input type="text" autocomplete="username" style="display:none" aria-hidden="true" />
+          </form>
+          <div id="client-form" class="mode-block">
+            <div class="column" style="margin-top:10px;">
+              <div><label>SSID</label><input id="wifi-ssid" placeholder="" /></div>
+              <div><label>Password</label><input id="wifi-pass" type="password" placeholder="" form="wifi-form"
+                  autocomplete="new-password" /></div>
+            </div>
+            <button class="primary" style="margin-top:12px;" onclick="saveNetwork()">Save</button>
+          </div>
+          <form id="ap-form-hidden" style="display:none">
+            <input type="text" autocomplete="username" style="display:none" aria-hidden="true" />
+          </form>
+          <div id="ap-form" class="mode-block" style="display:none;">
+            <div class="column" style="margin-top:10px;">
+              <div><label>SSID</label><input id="ap-ssid" placeholder="oms-ap" /></div>
+              <div><label>Password</label><input id="ap-pass" type="password" placeholder="optional" form="ap-form-hidden"
+                  autocomplete="new-password" /></div>
+            </div>
+            <button class="primary" style="margin-top:12px;" onclick="saveAp()">Save</button>
+          </div>
+          <div class="list" style="margin-top:8px;">
+            <div class="list-item"><span class="muted">RSSI</span><span id="wifi-rssi">-</span></div>
+            <div class="list-item"><span class="muted">IP</span><span id="wifi-ip">-</span></div>
+            <div class="list-item"><span class="muted">Gateway</span><span id="wifi-gw">-</span></div>
+            <div class="list-item"><span class="muted">DNS</span><span id="wifi-dns">-</span></div>
+          </div>
         </div>
       </section>
       <section class="card">
-        <h2>Backend</h2>
-        <label>Endpoint URL</label><input id="backend-url" placeholder="http://host:port/path" />
-        <div class="row" style="margin-top:10px;">
-          <button class="primary" onclick="saveBackend()">Save</button>
-          <button class="accent" onclick="testBackend()">Test</button>
+        <div class="card-head">
+          <h2>Backend</h2>
+          <button id="btn-backend-collapse" class="collapse-btn" aria-label="Toggle Backend" aria-expanded="true"
+            onclick="toggleCard('backend-body','btn-backend-collapse')">▾</button>
+        </div>
+        <div class="card-body" id="backend-body">
+          <label>Endpoint URL</label><input id="backend-url" placeholder="http://host:port/path" />
+          <div class="row" style="margin-top:10px;">
+            <button class="primary" onclick="saveBackend()">Save</button>
+            <button class="accent" onclick="testBackend()">Test</button>
+          </div>
         </div>
       </section>
       <section class="card">
-        <h2>Whitelist</h2>
-        <label>Manufacturer (hex LE)</label><input id="wl-manuf" placeholder="36F5" />
-        <label style="margin-top:8px;">ID (8 hex, LSB first)</label><input id="wl-id" placeholder="60931101" />
-        <button class="primary" style="margin-top:12px;" onclick="addWhitelist()">Add</button>
-        <div style="margin-top:12px;">
-          <p class="section-title">Entries</p>
-          <div id="wl-list" class="list"></div>
+        <div class="card-head">
+          <h2>Whitelist</h2>
+          <button id="btn-whitelist-collapse" class="collapse-btn" aria-label="Toggle Whitelist" aria-expanded="true"
+            onclick="toggleCard('whitelist-body','btn-whitelist-collapse')">▾</button>
+        </div>
+        <div class="card-body" id="whitelist-body">
+          <label>Manufacturer (hex LE)</label><input id="wl-manuf" placeholder="36F5" />
+          <label style="margin-top:8px;">ID (8 hex, LSB first)</label><input id="wl-id" placeholder="60931101" />
+          <button class="primary" style="margin-top:12px;" onclick="addWhitelist()">Add</button>
+          <div style="margin-top:12px;">
+            <p class="section-title">Entries</p>
+            <div id="wl-list" class="list"></div>
+          </div>
         </div>
       </section>
       <section class="card">
-        <h2>Radio</h2>
-        <div class="column">
-          <div>
-            <label>CS Threshold <span class="info-icon"
-                title="Carrier sense threshold: higher = more selective (rejects noise), lower = more sensitive.">i</span></label>
-            <select id="cs-level">
-              <option value="0">Default</option>
-              <option value="1">Medium</option>
-              <option value="2">High</option>
-              <option value="3">Low</option>
-            </select>
-          </div>
-          <div>
-            <label>Sync Mode <span class="info-icon"
-                title="Sync tolerance: stricter modes reduce false locks but may drop weak frames.">i</span></label>
-            <select id="sync-mode">
-              <option value="0">Default 15/16</option>
-              <option value="1">Tight 16/16</option>
-              <option value="2">Strict 30/32</option>
-            </select>
-          </div>
+        <div class="card-head">
+          <h2>Radio</h2>
+          <button id="btn-radio-collapse" class="collapse-btn" aria-label="Toggle Radio" aria-expanded="true"
+            onclick="toggleCard('radio-body','btn-radio-collapse')">▾</button>
         </div>
-        <button class="primary" style="margin-top:12px;" onclick="saveRadio()">Save Radio</button>
-        <p class="muted" id="radio-status" style="margin-top:8px;">-</p>
+        <div class="card-body" id="radio-body">
+          <div class="column">
+            <div>
+              <label>CS Threshold <span class="info-icon"
+                  title="Carrier sense threshold: higher = more selective (rejects noise), lower = more sensitive.">i</span></label>
+              <select id="cs-level">
+                <option value="0">Default</option>
+                <option value="1">Medium</option>
+                <option value="2">High</option>
+                <option value="3">Low</option>
+              </select>
+            </div>
+            <div>
+              <label>Sync Mode <span class="info-icon"
+                  title="Sync tolerance: stricter modes reduce false locks but may drop weak frames.">i</span></label>
+              <select id="sync-mode">
+                <option value="0">Default 15/16</option>
+                <option value="1">Tight 16/16</option>
+                <option value="2">Strict 30/32</option>
+              </select>
+            </div>
+          </div>
+          <button class="primary" style="margin-top:12px;" onclick="saveRadio()">Save Radio</button>
+          <p class="muted" id="radio-status" style="margin-top:8px;">-</p>
+        </div>
       </section>
     </div>
     <section class="card" style="margin-top:12px;">

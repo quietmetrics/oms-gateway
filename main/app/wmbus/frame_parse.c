@@ -117,12 +117,18 @@ bool wmbus_parse_tpl_meta(const WmbusFrameInfo *info, const uint8_t *logical, ui
         m.acc = logical[idx_app + 0];
         m.status = logical[idx_app + 1];
         m.cfg = (uint16_t)logical[idx_app + 2] | ((uint16_t)logical[idx_app + 3] << 8);
+        m.payload_offset = idx_app + 4;
     }
     else
     {
         m.acc = logical[idx_app + 8];
         m.status = logical[idx_app + 9];
         m.cfg = (uint16_t)logical[idx_app + 10] | ((uint16_t)logical[idx_app + 11] << 8);
+        m.payload_offset = idx_app + 12;
+    }
+    if (logical_len > m.payload_offset)
+    {
+        m.payload_len = logical_len - m.payload_offset;
     }
     m.header_type = hdr;
     m.has_tpl = true;
@@ -151,6 +157,8 @@ bool wmbus_parse_ell_meta(const WmbusFrameInfo *info, const uint8_t *logical, ui
 
     m.cc = logical[idx_app + 0];
     m.acc = logical[idx_app + 1];
+    m.next_offset = idx_app + 2;
+    m.payload_offset = m.next_offset;
     if (info->header.ci_field == 0x8E)
     {
         if (logical_len < idx_app + 10)
@@ -163,33 +171,60 @@ bool wmbus_parse_ell_meta(const WmbusFrameInfo *info, const uint8_t *logical, ui
         {
             m.ext[i] = logical[idx_app + 2 + i];
         }
+        m.next_offset = idx_app + 10;
+        m.payload_offset = m.next_offset;
+    }
+    if (logical_len > m.payload_offset)
+    {
+        m.payload_len = logical_len - m.payload_offset;
     }
     m.has_ell = true;
     *out = m;
     return true;
 }
 
-bool wmbus_derive_security_meta(const wmbus_tpl_meta_t *tpl, const wmbus_ell_meta_t *ell, uint8_t *out_mode, uint16_t *out_len, bool *out_encrypted)
+bool wmbus_derive_security_meta(const wmbus_tpl_meta_t *tpl, const wmbus_ell_meta_t *ell, const wmbus_afl_meta_t *afl, uint8_t *out_mode, uint16_t *out_len, bool *out_encrypted)
 {
     if (!tpl || !out_mode || !out_len || !out_encrypted)
     {
         return false;
     }
     // Best-effort heuristics:
-    // - If ELL present, treat as encrypted tunnel.
-    // - If TPL parsed and cfg != 0, assume encrypted and mode unknown (0).
-    // - Otherwise mode=0, encrypted=false.
-    uint8_t mode = 0;
+    // - ELL/AFL present => LMN/TLS tunnel.
+    // - TPL cfg != 0 => config present, but mode not decoded (profile-dependent).
+    // - Otherwise mode=none.
+    uint8_t mode = WMBUS_SEC_MODE_NONE;
     uint16_t enc_len = 0;
     bool enc = false;
 
     if (ell && ell->has_ell)
     {
         enc = true;
+        mode = WMBUS_SEC_MODE_TUNNEL;
     }
     else if (tpl && tpl->has_tpl && tpl->cfg != 0)
     {
         enc = true;
+        mode = WMBUS_SEC_MODE_CFG_PRESENT;
+    }
+    if (afl && afl->has_afl)
+    {
+        enc = true;
+        mode = WMBUS_SEC_MODE_TUNNEL;
+    }
+
+    // Choose best-known encrypted length: prefer AFL, then ELL, then TPL payload.
+    if (afl && afl->has_afl && afl->payload_len > 0)
+    {
+        enc_len = afl->payload_len;
+    }
+    else if (ell && ell->has_ell && ell->payload_len > 0)
+    {
+        enc_len = ell->payload_len;
+    }
+    else if (tpl && tpl->has_tpl && tpl->payload_len > 0)
+    {
+        enc_len = tpl->payload_len;
     }
 
     *out_mode = mode;

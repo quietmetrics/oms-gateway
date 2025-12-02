@@ -264,6 +264,19 @@ function renderWhitelist(entries){
   });
 }
 
+function toggleCard(bodyId, btnId){
+  const body=document.getElementById(bodyId);
+  if(!body) return;
+  const collapsed=body.classList.toggle('collapsed');
+  if(btnId){
+    const btn=document.getElementById(btnId);
+    if(btn){
+      btn.setAttribute('aria-expanded', collapsed?'false':'true');
+      btn.textContent = collapsed ? '▸' : '▾';
+    }
+  }
+}
+
 function renderPackets(list){
   const tbody=document.getElementById('pkt-body');
   const empty=document.getElementById('pkt-empty');
@@ -327,6 +340,15 @@ function showPacketModal(p){
   const body=document.getElementById('pkt-details');
   const title=document.getElementById('pkt-title');
   if(!modal||!body||!title) return;
+  const clean = (v) => (v===undefined||v===null||v==='null'||v==='') ? null : v;
+  const fmtNum = (v) => {
+    const n=Number(v);
+    return Number.isNaN(n)?null:n;
+  };
+  const fmtRssi = (v) => {
+    const n=fmtNum(v);
+    return (n===null)?null:`${n.toFixed(1)} dBm`;
+  };
   const manufStr=manufCodeToString(p.manuf);
   const manufHex=hex(p.manuf||0,4);
   const devName=deviceTypeName(p.dev_type);
@@ -336,66 +358,117 @@ function showPacketModal(p){
   const fabBlock=idStr ? idStr.slice(0,2) : '-';
   const fabNumber=idStr ? idStr.slice(2) : '-';
   const cName=cFieldName(p.control);
+  const cShort=shortLabel(cName,'C');
   const ciName=ciFieldName(p.ci);
   const ciShort=ciShortLabel(p, ciName);
   const statusVal = (p.status===null||p.status===undefined) ? null : p.status;
   const cfgVal = (p.cfg===null||p.cfg===undefined) ? null : p.cfg;
-  const ellCc = (p.ell_cc===null||p.ell_cc===undefined) ? null : p.ell_cc;
-  const ellAcc = (p.ell_acc===null||p.ell_acc===undefined) ? null : p.ell_acc;
-  const ellExt = (p.ell_ext===null||p.ell_ext===undefined||p.ell_ext==="null") ? null : p.ell_ext;
+  const ellCc = clean(p.ell_cc);
+  const ellAcc = clean(p.ell_acc);
+  const ellExt = clean(p.ell_ext);
+  const aflTag = clean(p.afl_tag);
+  const aflAfll = clean(p.afl_afll);
+  const aflOffset = clean(p.afl_offset);
+  const aflLen = clean(p.afl_payload_len);
   const enc = encStatus(p);
+  const ciClass = (p.ci_class===null||p.ci_class===undefined) ? null : p.ci_class;
   title.textContent=`Packet ${p.id||''}`;
-  const buildItem = (label, value, isMono=false, titleTxt='')=>{
-    if(value===null || value===undefined) return '';
-    const v = value;
-    const cls = isMono ? 'mono' : '';
-    const t = titleTxt ? ` title="${titleTxt}"` : '';
-    return `<div class="list-item"><span class="muted">${label}</span><span class="${cls}"${t}>${v}</span></div>`;
+  const tplHeaderLabel = (hdr) => {
+    if(!hdr) return 'Unknown';
+    if(hdr==='tpl_short') return 'Short header';
+    if(hdr==='tpl_long') return 'Long header';
+    if(hdr==='none') return 'No TPL header';
+    return hdr;
   };
-  const parsedItems = [
-    buildItem('Gateway', p.gateway||null),
-    buildItem('Manufacturer', manufStr || null),
-    buildItem('Fabrication block', fabBlock || null, true),
-    buildItem('Fabrication number', fabNumber || null, true),
-    buildItem('Version', p.version ?? null, true),
-    buildItem('Device', devName || null),
-    buildItem('OBIS Category', catText || null),
-    buildItem('C-Field', cName || null),
-    buildItem('CI', ciName ? `${ciName} (${ciShort})` : null),
-    buildItem('TPL Header', p.hdr || null, true),
-    buildItem('Access Number', (p.acc===null||p.acc===undefined)?null:p.acc, true),
-    buildItem('Status', statusVal===null?null:statusFlags(statusVal)),
-    buildItem('Config', cfgVal===null?null:hex(cfgVal,4)),
-    buildItem('Encryption', enc.label, true, enc.hint),
-    buildItem('ELL CC/ACC', (ellCc===null&&ellAcc===null)?null:`${ellCc===null?'-':ellCc}/${ellAcc===null?'-':ellAcc}`, true),
-    buildItem('ELL EXT', ellExt, true),
-    buildItem('Whitelisted', p.whitelisted?'Yes':'No')
-  ].filter(Boolean).join('');
+  const secModeLabel = (m) => {
+    if(m===null||m===undefined) return null;
+    const n=Number(m);
+    if(n===0) return 'None';
+    if(n===250) return 'Config present';
+    if(n===251) return 'Tunnel (ELL/AFL)';
+    return `Mode ${n}`;
+  };
 
-  const rawItems = [
-    buildItem('Manufacturer', manufHex, true),
-    buildItem('Fabrication block', fabBlock, true),
-    buildItem('Fabrication number', fabNumber, true),
-    buildItem('Device type', hex(p.dev_type||0,2), true),
-    buildItem('C-Field', hex(p.control||0,2), true),
-    buildItem('CI', hex(p.ci||0,2), true),
-    buildItem('Access Number', (p.acc===null||p.acc===undefined)?null:p.acc, true),
-    buildItem('Status', statusVal===null?null:hex(statusVal,2), true),
-    buildItem('Config', cfgVal===null?null:hex(cfgVal,4), true),
-    buildItem('RSSI', (p.rssi===null||p.rssi===undefined)?null:`${(p.rssi??0).toFixed(1)} dBm`, true),
-    buildItem('Payload length', p.payload_len??null, true)
-  ].filter(Boolean).join('');
+  const layers=[];
+  const addLayer=(title,cls)=>{
+    const layer={title,cls,rows:[]};
+    layers.push(layer);
+    return layer;
+  };
+  const addRow=(layer,label,raw,meaning)=>{
+    if(raw===null&&meaning===null) return;
+    layer.rows.push({label,raw:raw??'—',meaning:meaning??'—'});
+  };
+
+  const dll = addLayer('Data Link (DLL)','dll');
+  addRow(dll,'Gateway', clean(p.gateway), 'Source gateway name');
+  addRow(dll,'C-Field', hex(p.control||0,2), cName);
+  addRow(dll,'CI', hex(p.ci||0,2), ciName ? `${ciName} (${ciShort})` : null);
+  addRow(dll,'CI Class', ciClass, 'CI classification');
+  addRow(dll,'Manufacturer', manufHex, manufStr);
+  addRow(dll,'Meter ID', idStr, 'BCD ID');
+  addRow(dll,'Fabrication block', fabBlock, 'DIN fabrication block');
+  addRow(dll,'Fabrication number', fabNumber, 'DIN fabrication number');
+  addRow(dll,'Version', p.version, 'Production version');
+  addRow(dll,'Device type', hex(p.dev_type||0,2), devName);
+  addRow(dll,'OBIS Category', cat, catLabel(cat));
+
+  const hasTpl = p.hdr && p.hdr !== 'none';
+  if (hasTpl) {
+    const tpl = addLayer('Transport (TPL)','tpl');
+    addRow(tpl,'Header', p.hdr, tplHeaderLabel(p.hdr));
+    addRow(tpl,'Access number', (p.acc===null||p.acc===undefined)?null:p.acc, 'ACC');
+    addRow(tpl,'Status', statusVal===null?null:hex(statusVal,2), statusVal===null?null:statusFlags(statusVal));
+    addRow(tpl,'Config (Sig/Security)', cfgVal===null?null:hex(cfgVal,4), 'Sig/Config (EN 13757-3/7), profile-dependent');
+  }
+
+  if(ellCc!==null || ellAcc!==null || ellExt!==null){
+    const ellLayer = addLayer('Extended Link (ELL)','ell');
+    addRow(ellLayer,'CC', ellCc, 'ELL control code');
+    addRow(ellLayer,'ACC', ellAcc, 'ELL access counter');
+    addRow(ellLayer,'EXT', ellExt?`0x${ellExt}`:null, 'ELL extension');
+  }
+
+  if(aflTag!==null || aflAfll!==null || aflOffset!==null || aflLen!==null){
+    const aflLayer = addLayer('Application Fragmentation (AFL)','afl');
+    addRow(aflLayer,'Tag', aflTag, 'AFL tag (expected 0x90)');
+    addRow(aflLayer,'AFLL', aflAfll, 'AFL header length');
+    addRow(aflLayer,'Offset', aflOffset, 'Start of AFL');
+    addRow(aflLayer,'Payload length', aflLen, 'Bytes after AFL header');
+  }
+
+  const metaLayer = addLayer('Meta','meta');
+  addRow(metaLayer,'RSSI', fmtRssi(p.rssi), 'Received signal strength');
+  addRow(metaLayer,'Payload length', fmtNum(p.payload_len), 'Frame payload length');
+  addRow(metaLayer,'Security', enc.label, enc.hint);
+  addRow(metaLayer,'Security mode', p.sec_mode, secModeLabel(p.sec_mode));
+  addRow(metaLayer,'Encrypted bytes', clean(p.sec_len), 'Estimated encrypted length');
+  addRow(metaLayer,'Whitelisted', p.whitelisted?'Yes':'No', 'Matched whitelist');
+
+  const layerHtml = layers
+    .filter(l=>l.rows.length)
+    .map(l=>{
+      const rowsHtml = l.rows.map(r=>`
+        <tr>
+          <td>${r.label}</td>
+          <td class="mono">${r.raw}</td>
+          <td>${r.meaning}</td>
+        </tr>`).join('');
+      return `
+        <div class="modal-section layer-card ${l.cls||''}">
+          <div class="layer-head">${l.title}</div>
+          <div class="layer-body">
+            <table class="layer-table">
+              <thead><tr><th>Field</th><th>Raw</th><th>Meaning</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
 
   body.innerHTML=`
     <div class="modal-grid">
-      <div class="modal-section">
-        <h4>Raw</h4>
-        <div class="list">${rawItems || '<div class="list-item"><span class="muted">No raw data</span></div>'}</div>
-      </div>
-      <div class="modal-section">
-        <h4>Parsed</h4>
-        <div class="list">${parsedItems || '<div class="list-item"><span class="muted">No parsed data</span></div>'}</div>
-      </div>
+      ${layerHtml || '<div class="muted">No data</div>'}
     </div>
   `;
   modal.classList.remove('hidden');
@@ -550,10 +623,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
 });
 const encStatus = (p) => {
   const hasTpl = p.hdr && p.hdr !== 'none';
-  const cfgNum = (p.cfg===null||p.cfg===undefined||p.cfg==="null") ? 0 : Number(p.cfg);
   const ell = (p.ell_cc!==undefined && p.ell_cc!==null) || (p.ell_ext!==undefined && p.ell_ext!==null && p.ell_ext!=="null");
-  if (ell) return {label:'ELL', hint:'Extended Link Layer tunnel (treat payload as encrypted blob)'};
-  if (hasTpl && cfgNum > 0) return {label:'Encrypted', hint:'TPL Config/Signature indicates encryption'};
-  if (hasTpl) return {label:'Not encrypted', hint:'TPL present, Config/Signature is zero'};
+  const secMode = (p.sec_mode===null||p.sec_mode===undefined) ? 0 : Number(p.sec_mode);
+  const secLen = (p.sec_len===null||p.sec_len===undefined) ? 0 : Number(p.sec_len);
+  const encryptedFlag = !!p.encrypted;
+  if (ell) return {label:'Encrypted (ELL)', hint:'Extended Link Layer / AFL tunnel'};
+  const hasEncEvidence = encryptedFlag || secMode>0 || secLen>0;
+  if (hasEncEvidence) {
+    if (secMode === 251) return {label:'Encrypted (tunnel)', hint:'ELL/AFL tunnel indicated'};
+    if (secMode === 250) return {label:'Encrypted (config)', hint:'Config/signature present; mode not decoded'};
+    if (secMode>0) return {label:`Encrypted (mode ${secMode})`, hint:`Config/Security indicates encryption${secLen>0?`, len=${secLen}`:''}`};
+    const lenTxt = secLen>0 ? `len=${secLen}` : 'len unknown';
+    return {label:`Encrypted`, hint:`Config/Security indicates encryption, ${lenTxt}`};
+  }
+  if (hasTpl) return {label:'Not encrypted', hint:'TPL present, no encryption indicated'};
   return {label:'Unknown', hint:'No TPL/ELL info; payload treated as opaque'};
 };

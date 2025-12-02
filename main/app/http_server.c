@@ -9,6 +9,7 @@
 #include "app/net/backend.h"
 #include "app/net/wifi.h"
 #include "app/wmbus/frame_parse.h"
+#include "app/wmbus/parsed_frame.h"
 #include "app/wmbus/whitelist.h"
 #include "app/wmbus/packet_router.h"
 #include "freertos/semphr.h"
@@ -69,20 +70,44 @@ typedef struct
     char gateway[APP_HOSTNAME_MAX];
     uint16_t manuf;
     char id[9];
-    uint8_t control;
     uint8_t dev_type;
     uint8_t version;
-    uint8_t ci;
+} pkt_addr_t;
+
+typedef struct
+{
+    uint8_t hdr_type; // TPL header type (wmbus_tpl_header_type_t)
+    bool has_tpl;
     uint8_t acc;
     uint8_t status;
     uint16_t cfg;
-    uint8_t hdr_type; // TPL header type (wmbus_tpl_header_type_t)
-    bool has_tpl;
+    uint8_t sec_mode;
+    uint16_t sec_len;
+    bool encrypted;
+} pkt_tpl_t;
+
+typedef struct
+{
     bool has_ell;
-    uint8_t ell_cc;
-    uint8_t ell_acc;
-    uint8_t ell_ext[8];
-    uint8_t ell_ext_len;
+    uint8_t cc;
+    uint8_t acc;
+    uint8_t ext[8];
+    uint8_t ext_len;
+} pkt_ell_t;
+
+typedef struct
+{
+    bool has_afl;
+    uint8_t tag;
+    uint8_t afll;
+    uint16_t offset;
+    uint16_t payload_offset;
+    uint16_t payload_len;
+} pkt_afl_t;
+
+typedef struct
+{
+    wmbus_parsed_frame_t frame;
     float rssi;
     uint32_t payload_len;
     bool whitelisted;
@@ -115,75 +140,38 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     {
         return;
     }
+    if (!evt->logical_packet || evt->logical_len == 0)
+    {
+        return;
+    }
+
+    wmbus_raw_frame_t raw = {
+        .bytes = evt->logical_packet,
+        .len = evt->logical_len,
+    };
+    wmbus_parsed_frame_t pf;
+    wmbus_parsed_frame_init(&pf, &raw, &evt->frame_info);
+    wmbus_parsed_frame_parse_meta(&pf);
+
     pkt_entry_t e = {0};
-    e.manuf = evt->frame_info.header.manufacturer_le;
-    snprintf(e.id, sizeof(e.id), "%02X%02X%02X%02X",
-             evt->frame_info.header.id[3], evt->frame_info.header.id[2],
-             evt->frame_info.header.id[1], evt->frame_info.header.id[0]);
-    e.control = evt->frame_info.header.control;
-    e.dev_type = evt->frame_info.header.device_type;
-    e.version = evt->frame_info.header.version;
-    e.ci = evt->frame_info.header.ci_field;
-    e.acc = 0;
-    e.status = 0;
-    e.cfg = 0;
-    e.hdr_type = WMBUS_TPL_HDR_NONE;
-    e.has_tpl = false;
-    e.has_ell = false;
-    e.ell_cc = 0;
-    e.ell_acc = 0;
-    e.ell_ext_len = 0;
+    e.frame = pf;
     e.rssi = evt->rssi_dbm;
     e.payload_len = evt->frame_info.payload_len;
     if (evt->gateway_name)
     {
-        strlcpy(e.gateway, evt->gateway_name, sizeof(e.gateway));
+        strlcpy(e.frame.dll.gateway, evt->gateway_name, sizeof(e.frame.dll.gateway));
     }
     else
     {
-        e.gateway[0] = '\0';
+        e.frame.dll.gateway[0] = '\0';
     }
     bool allowed = false;
     if (s_services)
     {
         const wmbus_whitelist_t *wl = services_whitelist(s_services);
-        allowed = wmbus_whitelist_contains(wl, e.manuf, evt->frame_info.header.id);
+        allowed = wmbus_whitelist_contains(wl, e.frame.dll.manuf, evt->frame_info.header.id);
     }
     e.whitelisted = allowed;
-
-    // Layer mapping (per OMS/EN13757):
-    //   DLL: L + C are part of the data link layer.
-    //   TPL: M/ID/Ver/Dev/CI + ACC/Status/Config belong to the transport layer.
-    //   APL: DIF/VIF/data follows after the TPL header.
-    //
-    // TPL header handling:
-    //   - The TPL header after CI (ACC/Status/Config, long header also repeats ID/M/Ver/Dev)
-    //     is only interpreted when CI has a known header length (short/long/none).
-    //   - Unknown CI values leave everything after CI opaque; we forward the raw bytes and
-    //     do not attempt to guess a TPL header layout.
-    //
-    // Parse TPL header (ACC/Status/Config|Signature) when available
-    wmbus_tpl_meta_t tpl = {0};
-    if (wmbus_parse_tpl_meta(&evt->frame_info, evt->logical_packet, evt->logical_len, &tpl))
-    {
-        e.hdr_type = tpl.header_type;
-        e.acc = tpl.acc;
-        e.status = tpl.status;
-        e.cfg = tpl.cfg;
-        e.has_tpl = tpl.has_tpl;
-    }
-    wmbus_ell_meta_t ell = {0};
-    if (wmbus_parse_ell_meta(&evt->frame_info, evt->logical_packet, evt->logical_len, &ell))
-    {
-        e.has_ell = ell.has_ell;
-        e.ell_cc = ell.cc;
-        e.ell_acc = ell.acc;
-        e.ell_ext_len = ell.ext_len;
-        if (ell.ext_len)
-        {
-            memcpy(e.ell_ext, ell.ext, ell.ext_len);
-        }
-    }
 
     if (xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
@@ -548,55 +536,73 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
         {
             const pkt_entry_t *p = &s_pkt_buf[i];
             const char *hdr = "none";
-            if (p->hdr_type == WMBUS_TPL_HDR_SHORT)
+            if (p->frame.tpl.tpl.header_type == WMBUS_TPL_HDR_SHORT)
             {
                 hdr = "tpl_short";
             }
-            else if (p->hdr_type == WMBUS_TPL_HDR_LONG)
+            else if (p->frame.tpl.tpl.header_type == WMBUS_TPL_HDR_LONG)
             {
                 hdr = "tpl_long";
             }
             char acc_buf[12];
-            const char *acc = p->has_tpl ? (snprintf(acc_buf, sizeof(acc_buf), "%u", p->acc), acc_buf) : "null";
+            const char *acc = p->frame.tpl.has_tpl ? (snprintf(acc_buf, sizeof(acc_buf), "%u", p->frame.tpl.tpl.acc), acc_buf) : "null";
             char status_buf[12];
-            const char *status = p->has_tpl ? (snprintf(status_buf, sizeof(status_buf), "%u", p->status), status_buf) : "null";
+            const char *status = p->frame.tpl.has_tpl ? (snprintf(status_buf, sizeof(status_buf), "%u", p->frame.tpl.tpl.status), status_buf) : "null";
             char cfg_buf[16];
-            const char *cfg = p->has_tpl ? (snprintf(cfg_buf, sizeof(cfg_buf), "%u", p->cfg), cfg_buf) : "null";
+            const char *cfg = p->frame.tpl.has_tpl ? (snprintf(cfg_buf, sizeof(cfg_buf), "%u", p->frame.tpl.tpl.cfg), cfg_buf) : "null";
+            char sec_mode_buf[8];
+            const char *sec_mode = (p->frame.tpl.tpl.header_type && p->frame.tpl.sec.security_mode) ? (snprintf(sec_mode_buf, sizeof(sec_mode_buf), "%u", p->frame.tpl.sec.security_mode), sec_mode_buf) : "null";
+            char sec_len_buf[12];
+            const char *sec_len = (p->frame.tpl.sec.enc_len) ? (snprintf(sec_len_buf, sizeof(sec_len_buf), "%u", p->frame.tpl.sec.enc_len), sec_len_buf) : "null";
             char ell_ext_buf[20] = {0};
-            if (p->has_ell && p->ell_ext_len)
+            if (p->frame.ell.has_ell && p->frame.ell.ell.ext_len)
             {
-                for (uint8_t j = 0; j < p->ell_ext_len && (j * 2 + 2) < sizeof(ell_ext_buf); j++)
+                for (uint8_t j = 0; j < p->frame.ell.ell.ext_len && (j * 2 + 2) < sizeof(ell_ext_buf); j++)
                 {
-                    snprintf(ell_ext_buf + j * 2, sizeof(ell_ext_buf) - j * 2, "%02X", p->ell_ext[j]);
+                    snprintf(ell_ext_buf + j * 2, sizeof(ell_ext_buf) - j * 2, "%02X", p->frame.ell.ell.ext[j]);
                 }
             }
-            const char *ell_ext = (p->has_ell && p->ell_ext_len) ? ell_ext_buf : "null";
+            const char *ell_ext = (p->frame.ell.has_ell && p->frame.ell.ell.ext_len) ? ell_ext_buf : "null";
             char ell_cc_buf[8];
-            const char *ell_cc = p->has_ell ? (snprintf(ell_cc_buf, sizeof(ell_cc_buf), "%u", p->ell_cc), ell_cc_buf) : "null";
+            const char *ell_cc = p->frame.ell.has_ell ? (snprintf(ell_cc_buf, sizeof(ell_cc_buf), "%u", p->frame.ell.ell.cc), ell_cc_buf) : "null";
             char ell_acc_buf[8];
-            const char *ell_acc = p->has_ell ? (snprintf(ell_acc_buf, sizeof(ell_acc_buf), "%u", p->ell_acc), ell_acc_buf) : "null";
+            const char *ell_acc = p->frame.ell.has_ell ? (snprintf(ell_acc_buf, sizeof(ell_acc_buf), "%u", p->frame.ell.ell.acc), ell_acc_buf) : "null";
+            char afl_tag_buf[8];
+            const char *afl_tag = p->frame.afl.has_afl ? (snprintf(afl_tag_buf, sizeof(afl_tag_buf), "%u", p->frame.afl.afl.tag), afl_tag_buf) : "null";
+            char afl_afll_buf[8];
+            const char *afl_afll = p->frame.afl.has_afl ? (snprintf(afl_afll_buf, sizeof(afl_afll_buf), "%u", p->frame.afl.afl.afll), afl_afll_buf) : "null";
 
             pos += snprintf(json + pos, json_cap - pos,
                             "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
-                            "\"version\":%u,\"ci\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                            "\"version\":%u,\"ci\":%u,\"ci_class\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                            "\"sec_mode\":%s,\"sec_len\":%s,\"encrypted\":%s,"
                             "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
+                            "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
                             "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                             "\"whitelisted\":%s}",
                             (i == 0) ? "" : ",",
-                            p->gateway,
-                            p->manuf,
-                            p->id,
-                            p->control,
-                            p->dev_type,
-                            p->version,
-                            p->ci,
+                            p->frame.dll.gateway,
+                            p->frame.dll.manuf,
+                            p->frame.dll.id_str,
+                            p->frame.dll.c,
+                            p->frame.dll.dev_type,
+                            p->frame.dll.version,
+                            p->frame.dll.ci,
+                            p->frame.ci_class,
                             hdr,
                             acc,
                             status,
                             cfg,
+                            sec_mode,
+                            sec_len,
+                            p->frame.encrypted ? "true" : "false",
                             ell_cc,
                             ell_acc,
                             ell_ext,
+                            afl_tag,
+                            afl_afll,
+                            p->frame.afl.afl.offset,
+                            p->frame.afl.afl.payload_len,
                             p->rssi,
                             p->payload_len,
                             p->whitelisted ? "true" : "false");

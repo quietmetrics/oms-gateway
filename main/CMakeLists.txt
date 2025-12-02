@@ -10,7 +10,7 @@ idf_component_register(
         "app/wmbus/packet_router.c"
         "app/wmbus/whitelist.c"
         "app/wmbus/frame_parse.c"
-        "app/wmbus/parsed_frame.h"
+        "app/wmbus/parsed_frame.c"
         "app/net/backend.c"
         "app/net/wifi.c"
         "app/radio/radio_config.c"

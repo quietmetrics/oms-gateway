@@ -37,7 +37,17 @@ typedef struct
     uint8_t acc;                         // Access number (if has_tpl)
     uint8_t status;                      // Status byte (if has_tpl)
     uint16_t cfg;                        // Config/Signature field (if has_tpl)
+    uint16_t payload_offset;             // Offset to payload start after TPL header (0 if unknown)
+    uint16_t payload_len;                // Remaining bytes after header (0 if unknown)
 } wmbus_tpl_meta_t;
+
+// Coarse security mode hints
+typedef enum
+{
+    WMBUS_SEC_MODE_NONE = 0,           // No encryption indicated
+    WMBUS_SEC_MODE_CFG_PRESENT = 250,  // Config/signature present, mode not decoded
+    WMBUS_SEC_MODE_TUNNEL = 251        // ELL/AFL tunnel (LMN/TLS)
+} wmbus_sec_mode_t;
 
 typedef struct
 {
@@ -46,6 +56,9 @@ typedef struct
     uint8_t acc;     // ELL Access Counter
     uint8_t ext[8];  // Optional ELL extension bytes (0 for CI 0x8C)
     uint8_t ext_len; // 0 or 8
+    uint16_t next_offset; // offset after the ELL header (start of next layer/tag)
+    uint16_t payload_offset; // same as next_offset; first byte after ELL header
+    uint16_t payload_len;    // bytes after ELL header (0 if unknown)
 } wmbus_ell_meta_t;
 
 typedef struct
@@ -58,9 +71,9 @@ typedef struct
     uint16_t payload_len;    // Remaining bytes after AFL header
 } wmbus_afl_meta_t;
 
-// Derive coarse security meta from tpl/ell (best-effort; mode 0 = unencrypted).
+// Derive coarse security meta from tpl/ell/afl (best-effort; mode 0 = unencrypted).
 // Returns true if the fields were filled with a meaningful guess.
-bool wmbus_derive_security_meta(const wmbus_tpl_meta_t *tpl, const wmbus_ell_meta_t *ell, uint8_t *out_mode, uint16_t *out_len, bool *out_encrypted);
+bool wmbus_derive_security_meta(const wmbus_tpl_meta_t *tpl, const wmbus_ell_meta_t *ell, const wmbus_afl_meta_t *afl, uint8_t *out_mode, uint16_t *out_len, bool *out_encrypted);
 
 // CI classification helper
 wmbus_ci_class_t wmbus_classify_ci(uint8_t ci);
