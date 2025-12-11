@@ -184,7 +184,7 @@ the ESP32‑C3 board and the CC1101 module into a single unit.
 
 | Enclosure open                                      | Enclosure with lid                            |
 | --------------------------------------------------- | --------------------------------------------- |
-| ![Enclosure open](img/ESP32C3_CC1101_installed.jpg) | ![Enclosure with lid](img/ESP32C3_CC1101.jpg) |
+| ![Enclosure open](img/ESP32C3_CC1101_installed.jpg) | ![Enclosure with lid](img/ESP32C3_CC1101_Back.png) |
 
 Characteristics:
 
