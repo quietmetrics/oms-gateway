@@ -366,6 +366,18 @@ esp_err_t wifi_sta_connect(void)
 
 bool wifi_sta_is_connected(void)
 {
+    if (s_netif)
+    {
+        esp_netif_ip_info_t ip = {0};
+        if (esp_netif_get_ip_info(s_netif, &ip) == ESP_OK && ip.ip.addr != 0)
+        {
+            s_connected = true;
+        }
+        else
+        {
+            s_connected = false;
+        }
+    }
     return s_connected;
 }
 

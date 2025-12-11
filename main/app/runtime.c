@@ -20,8 +20,10 @@
 #include "app/services.h"
 #include "app/config.h"
 #include "app/http_server.h"
+#include "app/led.h"
 
 static const char *TAG = "app";
+static bool s_wifi_connected_prev = false;
 
 typedef struct
 {
@@ -145,6 +147,7 @@ static esp_err_t app_setup(app_ctx_t *ctx)
 {
     ESP_ERROR_CHECK(system_init());
     ESP_ERROR_CHECK(services_init(&ctx->services));
+    ESP_ERROR_CHECK(status_led_init(STATUS_LED_GPIO, STATUS_LED_ACTIVE_LOW));
 
     ESP_ERROR_CHECK(wmbus_packet_router_init());
     wmbus_packet_router_register(ui_sink, NULL);
@@ -158,6 +161,17 @@ static esp_err_t app_setup(app_ctx_t *ctx)
 
     ESP_ERROR_CHECK(wifi_start_with_fallback(&ctx->services));
     ESP_ERROR_CHECK(http_server_start(&ctx->services));
+
+    s_wifi_connected_prev = wifi_sta_is_connected();
+    if (s_wifi_connected_prev)
+    {
+        status_led_set_base(STATUS_LED_PATTERN_OFF);
+        status_led_trigger_once(STATUS_LED_PATTERN_DOUBLE_BLINK);
+    }
+    else
+    {
+        status_led_set_base(STATUS_LED_PATTERN_FADE_SLOW);
+    }
     return ESP_OK;
 }
 
@@ -171,6 +185,21 @@ static void app_loop(app_ctx_t *ctx)
 
     while (true)
     {
+        bool wifi_connected = wifi_sta_is_connected();
+        if (wifi_connected != s_wifi_connected_prev)
+        {
+            if (wifi_connected)
+            {
+                status_led_set_base(STATUS_LED_PATTERN_OFF);
+                status_led_trigger_once(STATUS_LED_PATTERN_DOUBLE_BLINK);
+            }
+            else
+            {
+                status_led_set_base(STATUS_LED_PATTERN_FADE_SLOW);
+            }
+            s_wifi_connected_prev = wifi_connected;
+        }
+
         ESP_ERROR_CHECK(wmbus_pipeline_receive(&ctx->cc1101, &res, APP_RX_TIMEOUT_MS));
 
         if (!res.complete || res.packet_size == 0 || res.encoded_len == 0)
@@ -182,6 +211,7 @@ static void app_loop(app_ctx_t *ctx)
 
         if (res.status == WMBUS_PKT_OK)
         {
+            status_led_pulse();
             if (res.frame_info.parsed)
             {
                 log_packet_summary(&res, &res.frame_info);
