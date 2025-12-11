@@ -18,6 +18,7 @@ idf_component_register(
         "app/storage.c"
         "app/runtime.c"
         "app/http_server.c"
+        "app/led.c"
     EMBED_FILES
         "app/static/index.html"
         "app/static/app.js"

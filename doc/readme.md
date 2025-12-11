@@ -5,6 +5,10 @@
 > and the main architectural ideas, from the meter in the field up to the
 > dashboard.
 
+> [!TIP]
+> Need a layer-by-layer breakdown of the OMS stack? See `doc/OMS_PROTOCOL_STACK.md`
+> for a companion guide that mirrors OMS Volume 2 and references the codebase.
+
 ---
 
 ## 1. Goal and Scope
@@ -45,6 +49,15 @@ flowchart LR
 * The **time series database** stores the data for long‑term analysis.
 * The **visualization dashboard** shows trends, alarms and reports.
 
+> [!NOTE] Current Build Status  
+> - [x] Stable RF receive path (CC1101 HAL, Mode C timing, RSSI/LQI logging)  
+> - [x] Layered parser (DLL → ELL → AFL → TPL) filling `wmbus_parsed_frame_t` for UI/backend  
+> - [x] Web UI for Wi-Fi onboarding, radio presets, whitelist, backend probe, live monitor  
+> - [x] FastAPI backend stub ready for MQTT/InfluxDB forwarding  
+> - [x] Active-low LED HAL for Wi-Fi/payload feedback on GPIO8  
+> - [ ] Backend decryption + Application Layer parsing  
+> - [ ] Finalize MQTT/InfluxDB bridge and RF-optimized hardware rev
+
 ### 2.2 OMS Protocol Layers
 
 An overview of the protocol layers used in the project:
@@ -67,12 +80,11 @@ backend can apply decryption and application‑specific parsing.
 
 ### 3.1 Main Components
 
-* **Espressif ESP32‑C3 microcontroller (ESP32‑C3)**
-  Provides Wi‑Fi connectivity, USB‑C power and enough resources for radio
-  control, web server and configuration logic.
-
-* **Texas Instruments CC1101 sub‑GHz transceiver (CC1101)**
-  Receives OMS Wireless Meter‑Bus frames in the 868 / 886 MHz band.
+| Component | Role in the gateway |
+| --------- | ------------------- |
+| **Espressif ESP32‑C3** | MCU platform with Wi‑Fi, USB‑C power, FreeRTOS runtime for radio control + Web UI. |
+| **TI CC1101 (sub‑GHz)** | Frontend for OMS Mode C reception, SPI-connected with dedicated GPIO interrupts. |
+| **Enclosure / CAD** | 3D-printed shell combining ESP32‑C3 + CC1101 for a repeatable lab setup. |
 
 | ESP32‑C3 and CC1101                            | Description                                                              |
 | ---------------------------------------------- | ------------------------------------------------------------------------ |
@@ -143,15 +155,10 @@ This created a **stable baseline** for further protocol work.
 
 ### 5.1 Operating Environment
 
-The prototype is tested in a dense city environment with many other systems in
-the 868 MHz band:
-
-* Multiple OMS Wireless Meter‑Bus meters.
-* Various Internet of Things (IoT) devices.
-* Alarm systems and other proprietary radios.
-
-As a result, the gateway sees many frames and background activity. Selecting
-robust receiver parameters is essential.
+> [!IMPORTANT]
+> Dense urban RF environment (multiple OMS meters, IoT nodes, alarm radios)
+> demands tight sync detection and conservative duty-cycle management to avoid
+> false positives and collisions.
 
 ### 5.2 CC1101 Receiver Parameters
 
@@ -256,6 +263,19 @@ The next development step is to connect the identified security configuration
 fields to a concrete decryption implementation in the backend and to implement
 correct Application Layer parsing.
 
+### 7.3 OMS Protocol Stack in This Project
+
+The OMS / Wireless M‑Bus stack inside this repository closely mirrors Volume 2 of the OMS specification:
+
+1. ⚙️ **Physical Layer** – CC1101 runs Mode C timings (preamble, 3-of-6 coding) and enforces duty-cycle limits per meter type. LPWAN annex parameters are tracked for future range experiments.
+2. 📶 **Link / Extended Link Layer** – `main/wmbus/pipeline.c` verifies C/L-fields, addresses (LLA + ELLA), hop bits and synchronous timing, handing off clean payloads plus RSSI/LQI.
+3. 🧷 **Authentication & Fragmentation Layer (AFL)** – Fragment headers, MACs and Ki-flags are parsed so Security Profiles B–D can be validated even if payload stays encrypted.
+4. 📬 **Transport Layer (TPL)** – CI-field, Access Number, Status bits and Configuration Field are decoded and surfaced to the UI/backend, enabling command workflows and Application Error reporting.
+5. 📦 **Application Protocols** – Current firmware focuses on forwarding M‑Bus payloads verbatim. The OMS Data Point List (Annex B) and descriptors are documented in `doc/OMS_PROTOCOL_STACK.md` for future interpreters.
+6. 🔐 **Security Profiles** – The stack tracks which profile a frame uses (A/B/C/D) so backend services know whether to expect AES-CBC, CCM, or TLS key material before decryption.
+
+For a detailed walkthrough of each layer, message type, and how the code maps to OMS Volume 2 see **`doc/OMS_PROTOCOL_STACK.md`**.
+
 ---
 
 ## 8. Web Interface
@@ -277,19 +297,12 @@ The top bar shows:
 
 ### 8.2 Configuration Sections
 
-* **Network configuration**
-  Configure Wi‑Fi client and Access Point settings, hostname and IP details.
-
-* **Backend configuration**
-  Configure the backend Uniform Resource Locator (URL) or Message Queuing
-  Telemetry Transport (MQTT) endpoint and test connectivity.
-
-* **Whitelist management**
-  Allow or block meters based on manufacturer code and meter identification.
-
-* **Radio configuration**
-  Adjust Carrier Sense threshold and Sync Word correlation mode of the
-  CC1101 transceiver.
+| Section | Purpose |
+| ------- | ------- |
+| **Network** | Configure Wi‑Fi STA/AP credentials, hostname, and IP variables. |
+| **Backend** | Set HTTP/MQTT endpoints, run reachability probe, and view status. |
+| **Whitelist** | Manage manufacturer/ID allow-list for forwarding decisions. |
+| **Radio** | Adjust CC1101 CS thresholds, sync correlation, and monitor live stats. |
 
 ### 8.3 Packet Monitor and Details
 
@@ -314,28 +327,27 @@ structure, addresses and radio quality.
 
 ---
 
-## 9. Progress Checklist
+## 9. Progress Checklist ✅
 
 ### 9.1 Implemented
 
-* [x] Hardware bring‑up of ESP32‑C3 microcontroller and CC1101 transceiver.
-* [x] Stable Serial Peripheral Interface communication validated with logic
-  analyzer.
-* [x] Reception of Wireless Meter‑Bus frames in a real 868 MHz city
-  environment.
-* [x] Layered decoding concept for Physical Layer, Data Link Layer, Transport
-  Layer, Extended Link Layer, Application Frame Layer and Application
-  Layer.
-* [x] Web interface for status, configuration and packet monitoring.
+| ✅ Delivered | Notes |
+| ------------ | ----- |
+| Hardware bring‑up (ESP32‑C3 + CC1101) | SPI + GPIO paths validated, enclosure available. |
+| Stable SPI comms | Logic analyzer traces confirm reliable transfers/interrupts. |
+| Live RF reception | Real OMS traffic decoded in-city with RSSI/LQI logged. |
+| Layered decoding | PHY → DLL/ELL → AFL/TPL → metadata pipeline implemented. |
+| Web interface | Handles Wi‑Fi/backend/radio/whitelist configuration + monitor. |
 
 ### 9.2 Next Steps
 
-* [ ] Interpret security configuration bits of the Transport Layer and
-  Extended Link Layer in the backend.
-* [ ] Implement decryption of encrypted payloads in the backend.
-* [ ] Implement Application Layer parsing for relevant meter profiles.
-* [ ] Improve radio‑frequency layout with a dedicated Printed Circuit Board.
-* [ ] Extend automated tests and documentation for additional developers.
+| 🧭 Focus | Description |
+| -------- | ----------- |
+| Backend security parsing | Interpret CF/AFL security bits in FastAPI service. |
+| Payload decryption | Implement AES/TLS handling + key management on backend. |
+| Application parsing | Decode mandatory OMS data points (Annex B) downstream. |
+| Hardware rev | Improve RF layout with dedicated PCB and clean antenna path. |
+| QA & docs | Expand automated tests and contributor guidance. |
 
 ---
 
