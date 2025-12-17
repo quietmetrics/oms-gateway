@@ -549,6 +549,14 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
             const char *status = p->frame.tpl.has_tpl ? (snprintf(status_buf, sizeof(status_buf), "%u", p->frame.tpl.tpl.status), status_buf) : "null";
             char cfg_buf[16];
             const char *cfg = p->frame.tpl.has_tpl ? (snprintf(cfg_buf, sizeof(cfg_buf), "%u", p->frame.tpl.tpl.cfg), cfg_buf) : "null";
+            char tpl_ci_buf[12];
+            const char *tpl_ci = p->frame.tpl.has_tpl ? (snprintf(tpl_ci_buf, sizeof(tpl_ci_buf), "%u", p->frame.tpl.tpl.ci), tpl_ci_buf) : "null";
+            char tpl_mode_buf[8];
+            const char *tpl_mode = (p->frame.tpl.has_tpl && p->frame.tpl.tpl.cfg_info.mode) ? (snprintf(tpl_mode_buf, sizeof(tpl_mode_buf), "%u", p->frame.tpl.tpl.cfg_info.mode), tpl_mode_buf) : "null";
+            char tpl_content_buf[8];
+            const char *tpl_content = p->frame.tpl.has_tpl ? (snprintf(tpl_content_buf, sizeof(tpl_content_buf), "%u", p->frame.tpl.tpl.cfg_info.content), tpl_content_buf) : "null";
+            char tpl_index_buf[8];
+            const char *tpl_index = p->frame.tpl.has_tpl ? (snprintf(tpl_index_buf, sizeof(tpl_index_buf), "%u", p->frame.tpl.tpl.cfg_info.content_index), tpl_index_buf) : "null";
             char sec_mode_buf[8];
             const char *sec_mode = (p->frame.tpl.tpl.header_type && p->frame.tpl.sec.security_mode) ? (snprintf(sec_mode_buf, sizeof(sec_mode_buf), "%u", p->frame.tpl.sec.security_mode), sec_mode_buf) : "null";
             char sec_len_buf[12];
@@ -570,13 +578,16 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
             const char *afl_tag = p->frame.afl.has_afl ? (snprintf(afl_tag_buf, sizeof(afl_tag_buf), "%u", p->frame.afl.afl.tag), afl_tag_buf) : "null";
             char afl_afll_buf[8];
             const char *afl_afll = p->frame.afl.has_afl ? (snprintf(afl_afll_buf, sizeof(afl_afll_buf), "%u", p->frame.afl.afl.afll), afl_afll_buf) : "null";
-            char entry[512];
+            char afl_mcl_buf[8];
+            const char *afl_mcl = p->frame.afl.has_afl ? (snprintf(afl_mcl_buf, sizeof(afl_mcl_buf), "%u", p->frame.afl.afl.mcl), afl_mcl_buf) : "null";
+            char entry[640];
             int written = snprintf(entry, sizeof(entry),
                                    "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
                                    "\"version\":%u,\"ci\":%u,\"ci_class\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
+                                   "\"tpl_ci\":%s,\"tpl_mode\":%s,\"tpl_content\":%s,\"tpl_index\":%s,"
                                    "\"sec_mode\":%s,\"sec_len\":%s,\"encrypted\":%s,"
                                    "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
-                                   "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
+                                   "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_mcl\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
                                    "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                                    "\"whitelisted\":%s}",
                                    (i == 0) ? "" : ",",
@@ -592,6 +603,10 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    acc,
                                    status,
                                    cfg,
+                                   tpl_ci,
+                                   tpl_mode,
+                                   tpl_content,
+                                   tpl_index,
                                    sec_mode,
                                    sec_len,
                                    p->frame.encrypted ? "true" : "false",
@@ -600,6 +615,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    ell_ext,
                                    afl_tag,
                                    afl_afll,
+                                   afl_mcl,
                                    p->frame.afl.afl.offset,
                                    p->frame.afl.afl.payload_len,
                                    p->rssi,

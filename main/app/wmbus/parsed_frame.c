@@ -29,36 +29,69 @@ void wmbus_parsed_frame_parse_meta(wmbus_parsed_frame_t *f)
         return;
     }
 
-    // TPL
-    wmbus_tpl_meta_t tpl = {0};
-    if (wmbus_parse_tpl_meta(&f->info, f->raw.bytes, f->raw.len, &tpl))
+    const uint8_t *logical = f->raw.bytes;
+    const uint16_t logical_len = f->raw.len;
+    uint16_t ci_offset = (WMBUS_FIXED_HEADER_BYTES > 0) ? (WMBUS_FIXED_HEADER_BYTES - 1) : 0;
+    if (ci_offset >= logical_len)
     {
-        f->tpl.has_tpl = tpl.has_tpl;
-        f->tpl.tpl = tpl;
+        return;
     }
+    uint8_t current_ci = logical[ci_offset];
 
-    // ELL
-    wmbus_ell_meta_t ell = {0};
-    if (wmbus_parse_ell_meta(&f->info, f->raw.bytes, f->raw.len, &ell))
+    while (ci_offset < logical_len)
     {
-        f->ell.has_ell = ell.has_ell;
-        f->ell.ell = ell;
-        // AFL nested after ELL
-        wmbus_afl_meta_t afl = {0};
-        if (wmbus_parse_afl_meta(f->raw.bytes, f->raw.len, ell.next_offset, &afl))
+        const wmbus_ci_class_t ci_class = wmbus_classify_ci_extended(current_ci);
+        if (ci_class == WMBUS_CI_CLASS_ELL)
         {
-            f->afl.has_afl = afl.has_afl;
-            f->afl.afl = afl;
+            wmbus_ell_meta_t ell = {0};
+            if (wmbus_parse_ell_meta(&f->info, logical, logical_len, &ell))
+            {
+                f->ell.has_ell = true;
+                f->ell.ell = ell;
+                ci_offset = ell.next_offset;
+            }
+            else
+            {
+                break;
+            }
         }
-    }
-    else if (f->dll.ci == 0x90)
-    {
-        wmbus_afl_meta_t afl = {0};
-        if (wmbus_parse_afl_meta(f->raw.bytes, f->raw.len, 11, &afl))
+        else if (ci_class == WMBUS_CI_CLASS_AFL)
         {
-            f->afl.has_afl = afl.has_afl;
-            f->afl.afl = afl;
+            wmbus_afl_meta_t afl = {0};
+            if (wmbus_parse_afl_meta(logical, logical_len, ci_offset, &afl))
+            {
+                f->afl.has_afl = true;
+                f->afl.afl = afl;
+                ci_offset = afl.header_end_offset;
+            }
+            else
+            {
+                break;
+            }
         }
+        else if (ci_class == WMBUS_CI_CLASS_TPL ||
+                 ci_class == WMBUS_CI_CLASS_DATA_MBUS ||
+                 ci_class == WMBUS_CI_CLASS_DATA_OTHER ||
+                 ci_class == WMBUS_CI_CLASS_NET_OR_TPL)
+        {
+            wmbus_tpl_meta_t tpl = {0};
+            if (wmbus_parse_tpl_meta(current_ci, ci_offset, logical, logical_len, &tpl))
+            {
+                f->tpl.has_tpl = true;
+                f->tpl.tpl = tpl;
+            }
+            break;
+        }
+        else
+        {
+            break;
+        }
+
+        if (ci_offset >= logical_len)
+        {
+            break;
+        }
+        current_ci = logical[ci_offset];
     }
 
     // Security meta
