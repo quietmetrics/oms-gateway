@@ -372,6 +372,11 @@ function showPacketModal(p){
   const aflLen = clean(p.afl_payload_len);
   const enc = encStatus(p);
   const ciClass = (p.ci_class===null||p.ci_class===undefined) ? null : p.ci_class;
+  const tplCiVal = clean(p.tpl_ci);
+  const tplModeVal = clean(p.tpl_mode);
+  const tplContentVal = clean(p.tpl_content);
+  const tplIndexVal = clean(p.tpl_index);
+  const rawHex = clean(p.raw_hex);
   title.textContent=`Packet ${p.id||''}`;
   const tplHeaderLabel = (hdr) => {
     if(!hdr) return 'Unknown';
@@ -420,6 +425,10 @@ function showPacketModal(p){
     addRow(tpl,'Access number', (p.acc===null||p.acc===undefined)?null:p.acc, 'ACC');
     addRow(tpl,'Status', statusVal===null?null:hex(statusVal,2), statusVal===null?null:statusFlags(statusVal));
     addRow(tpl,'Config (Sig/Security)', cfgVal===null?null:hex(cfgVal,4), 'Sig/Config (EN 13757-3/7), profile-dependent');
+    addRow(tpl,'TPL CI byte', tplCiVal===null?null:hex(Number(tplCiVal)||0,2), 'CI introducing the Transport header');
+    addRow(tpl,'Security mode (CFG)', tplModeVal, secModeLabel(tplModeVal));
+    addRow(tpl,'Content bits (CC)', tplContentVal, 'Declares payload type');
+    addRow(tpl,'Content index (IIII)', tplIndexVal, 'Gateway filter hint');
   }
 
   if(ellCc!==null || ellAcc!==null || ellExt!==null){
@@ -465,10 +474,19 @@ function showPacketModal(p){
           </div>
         </div>`;
     }).join('');
+  const rawSection = rawHex ? `
+    <div class="modal-section layer-card raw-card">
+      <div class="layer-head">Raw Logical Frame</div>
+      <div class="raw-body">
+        <pre class="mono raw-hex">${formatHexDisplay(rawHex)}</pre>
+        <button class="secondary" type="button" onclick="copyRawHex('${rawHex}')">Copy Hex</button>
+      </div>
+    </div>` : '';
 
   body.innerHTML=`
     <div class="modal-grid">
       ${layerHtml || '<div class="muted">No data</div>'}
+      ${rawSection}
     </div>
   `;
   modal.classList.remove('hidden');
@@ -639,3 +657,38 @@ const encStatus = (p) => {
   if (hasTpl) return {label:'Not encrypted', hint:'TPL present, no encryption indicated'};
   return {label:'Unknown', hint:'No TPL/ELL info; payload treated as opaque'};
 };
+
+function formatHexDisplay(hexStr){
+  if(!hexStr) return '';
+  const lines = hexStr.match(/.{1,32}/g) || [];
+  if(!lines.length) return hexStr;
+  return lines.map(line=>line.replace(/(.{2})/g,'$1 ').trim()).join('\n');
+}
+
+function copyRawHex(hexStr){
+  if(!hexStr) return;
+  const doToast = (ok)=>toast(ok?'Raw hex copied':'Copy failed', ok?'success':'error');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(hexStr).then(()=>doToast(true)).catch(()=>{
+      fallbackCopy(hexStr, doToast);
+    });
+  }else{
+    fallbackCopy(hexStr, doToast);
+  }
+}
+
+function fallbackCopy(text, cb){
+  const area=document.createElement('textarea');
+  area.value=text;
+  area.style.position='fixed';
+  area.style.left='-9999px';
+  document.body.appendChild(area);
+  area.select();
+  try{
+    document.execCommand('copy');
+    cb(true);
+  }catch(_){
+    cb(false);
+  }
+  document.body.removeChild(area);
+}

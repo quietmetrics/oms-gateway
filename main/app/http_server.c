@@ -105,12 +105,16 @@ typedef struct
     uint16_t payload_len;
 } pkt_afl_t;
 
+#define PKT_RAW_MAX (WMBUS_FIXED_HEADER_BYTES + 300)
+
 typedef struct
 {
     wmbus_parsed_frame_t frame;
     float rssi;
     uint32_t payload_len;
     bool whitelisted;
+    uint8_t raw[PKT_RAW_MAX];
+    uint16_t raw_len;
 } pkt_entry_t;
 
 #define PKT_BUF_MAX 40
@@ -128,6 +132,28 @@ static esp_err_t send_err(httpd_req_t *req, const char *code, const char *msg)
     httpd_resp_set_status(req, code);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, msg);
+}
+
+static void bytes_to_hex(const uint8_t *in, uint16_t len, char *out, size_t out_len)
+{
+    if (!out || out_len == 0)
+    {
+        return;
+    }
+    if (!in || len == 0)
+    {
+        out[0] = '\0';
+        return;
+    }
+    static const char *hex = "0123456789ABCDEF";
+    size_t idx = 0;
+    for (uint16_t i = 0; i < len && (idx + 2) < out_len; ++i)
+    {
+        uint8_t byte = in[i];
+        out[idx++] = hex[(byte >> 4) & 0x0F];
+        out[idx++] = hex[byte & 0x0F];
+    }
+    out[idx] = '\0';
 }
 
 void http_server_record_packet(const WmbusPacketEvent *evt)
@@ -172,6 +198,14 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
         allowed = wmbus_whitelist_contains(wl, e.frame.dll.manuf, evt->frame_info.header.id);
     }
     e.whitelisted = allowed;
+    e.raw_len = evt->logical_len > PKT_RAW_MAX ? PKT_RAW_MAX : evt->logical_len;
+    if (e.raw_len && evt->logical_packet)
+    {
+        memcpy(e.raw, evt->logical_packet, e.raw_len);
+    }
+    e.frame.raw.bytes = e.raw;
+    e.frame.raw.len = e.raw_len;
+    e.frame.info.logical_len = e.raw_len;
 
     if (xSemaphoreTake(s_pkt_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
@@ -580,7 +614,16 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
             const char *afl_afll = p->frame.afl.has_afl ? (snprintf(afl_afll_buf, sizeof(afl_afll_buf), "%u", p->frame.afl.afl.afll), afl_afll_buf) : "null";
             char afl_mcl_buf[8];
             const char *afl_mcl = p->frame.afl.has_afl ? (snprintf(afl_mcl_buf, sizeof(afl_mcl_buf), "%u", p->frame.afl.afl.mcl), afl_mcl_buf) : "null";
-            char entry[640];
+            char raw_hex_value[PKT_RAW_MAX * 2 + 1];
+            char raw_hex_json[PKT_RAW_MAX * 2 + 3];
+            const char *raw_hex = "null";
+            if (p->raw_len > 0)
+            {
+                bytes_to_hex(p->raw, p->raw_len, raw_hex_value, sizeof(raw_hex_value));
+                snprintf(raw_hex_json, sizeof(raw_hex_json), "\"%s\"", raw_hex_value);
+                raw_hex = raw_hex_json;
+            }
+            char entry[1024];
             int written = snprintf(entry, sizeof(entry),
                                    "%s{\"gateway\":\"%s\",\"manuf\":%u,\"id\":\"%s\",\"control\":%u,\"dev_type\":%u,"
                                    "\"version\":%u,\"ci\":%u,\"ci_class\":%u,\"hdr\":\"%s\",\"acc\":%s,\"status\":%s,\"cfg\":%s,"
@@ -588,6 +631,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    "\"sec_mode\":%s,\"sec_len\":%s,\"encrypted\":%s,"
                                    "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
                                    "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_mcl\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
+                                   "\"raw_hex\":%s,"
                                    "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
                                    "\"whitelisted\":%s}",
                                    (i == 0) ? "" : ",",
@@ -618,6 +662,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    afl_mcl,
                                    p->frame.afl.afl.offset,
                                    p->frame.afl.afl.payload_len,
+                                   raw_hex,
                                    p->rssi,
                                    p->payload_len,
                                    p->whitelisted ? "true" : "false");

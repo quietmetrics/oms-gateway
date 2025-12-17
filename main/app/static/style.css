@@ -452,6 +452,26 @@ button:active { transform: translateY(1px); }
 .layer-body {
   padding: 0;
 }
+.raw-card .raw-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.raw-card .raw-body button {
+  align-self: flex-start;
+}
+.raw-hex {
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .layer-dll .layer-head { background: rgba(14,165,233,0.12); }
 .layer-tpl .layer-head { background: rgba(99,102,241,0.12); }
 .layer-ell .layer-head { background: rgba(245,158,11,0.14); }
