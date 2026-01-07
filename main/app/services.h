@@ -3,7 +3,6 @@
 
 #include <stddef.h>
 #include "esp_err.h"
-#include "app/wmbus/whitelist.h"
 #include "app/net/backend.h"
 #include "app/net/wifi.h"
 #include "app/radio/radio_config.h"
@@ -11,20 +10,13 @@
 
 typedef struct
 {
-    wmbus_whitelist_t whitelist;
     backend_config_t backend;
     radio_config_t radio;
     char hostname[APP_HOSTNAME_MAX];
 } services_state_t;
 
-// Initialize persisted configs (whitelist, backend, radio, hostname).
+// Initialize persisted configs (backend, radio, hostname).
 esp_err_t services_init(services_state_t *svc);
-
-// Accessors for composed services (non-owning).
-static inline wmbus_whitelist_t *services_whitelist(services_state_t *svc)
-{
-    return svc ? &svc->whitelist : NULL;
-}
 
 static inline backend_config_t *services_backend(services_state_t *svc)
 {

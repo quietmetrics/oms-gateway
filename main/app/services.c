@@ -23,7 +23,6 @@ esp_err_t services_init(services_state_t *svc)
 
     memset(svc, 0, sizeof(*svc));
 
-    ESP_ERROR_CHECK(wmbus_whitelist_init(&svc->whitelist));
     ESP_ERROR_CHECK(backend_init(&svc->backend));
     ESP_ERROR_CHECK(radio_config_init(&svc->radio));
 

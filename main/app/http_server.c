@@ -10,7 +10,6 @@
 #include "app/net/wifi.h"
 #include "app/wmbus/frame_parse.h"
 #include "app/wmbus/parsed_frame.h"
-#include "app/wmbus/whitelist.h"
 #include "app/wmbus/packet_router.h"
 #include "freertos/semphr.h"
 
@@ -30,7 +29,6 @@ extern const unsigned char style_css_end[] asm("_binary_style_css_end");
 ICON_DECLARE(wifi);
 ICON_DECLARE(cloud_done);
 ICON_DECLARE(cloud_off);
-ICON_DECLARE(shield);
 ICON_DECLARE(sensors);
 ICON_DECLARE(trash);
 ICON_DECLARE(podcast);
@@ -51,7 +49,6 @@ static const icon_entry_t ICONS[] = {
     ICON_ENTRY(wifi),
     ICON_ENTRY(cloud_done),
     ICON_ENTRY(cloud_off),
-    ICON_ENTRY(shield),
     ICON_ENTRY(sensors),
     ICON_ENTRY(trash),
     ICON_ENTRY(podcast),
@@ -112,7 +109,6 @@ typedef struct
     wmbus_parsed_frame_t frame;
     float rssi;
     uint32_t payload_len;
-    bool whitelisted;
     uint8_t raw[PKT_RAW_MAX];
     uint16_t raw_len;
 } pkt_entry_t;
@@ -191,13 +187,6 @@ void http_server_record_packet(const WmbusPacketEvent *evt)
     {
         e.frame.dll.gateway[0] = '\0';
     }
-    bool allowed = false;
-    if (s_services)
-    {
-        const wmbus_whitelist_t *wl = services_whitelist(s_services);
-        allowed = wmbus_whitelist_contains(wl, e.frame.dll.manuf, evt->frame_info.header.id);
-    }
-    e.whitelisted = allowed;
     e.raw_len = evt->logical_len > PKT_RAW_MAX ? PKT_RAW_MAX : evt->logical_len;
     if (e.raw_len && evt->logical_packet)
     {
@@ -266,33 +255,6 @@ static void url_decode_inplace(char *s)
     *dst = '\0';
 }
 
-static void format_whitelist(char *buf, size_t cap, const wmbus_whitelist_t *wl)
-{
-    size_t pos = 0;
-    pos += snprintf(buf + pos, cap - pos, "{\"entries\":[");
-    size_t count = 0;
-    if (wl)
-    {
-        count = wl->count;
-        if (count > WMBUS_WHITELIST_MAX)
-        {
-            count = WMBUS_WHITELIST_MAX;
-        }
-    }
-    for (size_t i = 0; i < count && pos < cap; i++)
-    {
-        const uint8_t *id = wl->entries[i].id;
-        pos += snprintf(buf + pos, cap - pos, "%s{\"manuf\":\"%04X\",\"id\":\"%02X%02X%02X%02X\"}",
-                        (i == 0) ? "" : ",",
-                        wl->entries[i].manufacturer_le,
-                        id[3], id[2], id[1], id[0]);
-    }
-    if (pos < cap)
-    {
-        snprintf(buf + pos, cap - pos, "]}");
-    }
-}
-
 static esp_err_t handle_static(httpd_req_t *req, const unsigned char *start, const unsigned char *end, const char *type)
 {
     httpd_resp_set_type(req, type);
@@ -335,9 +297,6 @@ static esp_err_t handle_static_icon(httpd_req_t *req)
 
 static esp_err_t handle_status(httpd_req_t *req)
 {
-    char wl_json[1024];
-    format_whitelist(wl_json, sizeof(wl_json), services_whitelist(s_services));
-
     app_wifi_status_t wifi = {0};
     services_get_wifi_status(&wifi);
     app_radio_status_t radio = {0};
@@ -353,7 +312,7 @@ static esp_err_t handle_status(httpd_req_t *req)
                      "{\"hostname\":\"%s\",\"wifi\":{\"connected\":%s,\"ssid\":\"%s\",\"ip\":\"%s\",\"has_pass\":%s,"
                      "\"rssi\":%d,\"gateway\":\"%s\",\"dns\":\"%s\"},"
                      "\"ap\":{\"ssid\":\"%s\",\"channel\":%u,\"has_pass\":%s},"
-                     "\"backend\":{\"url\":\"%s\",\"reachable\":%s},\"radio\":{\"cs_level\":%u,\"sync_mode\":%u},\"whitelist\":%s}",
+                     "\"backend\":{\"url\":\"%s\",\"reachable\":%s},\"radio\":{\"cs_level\":%u,\"sync_mode\":%u}}",
                      services_hostname(s_services),
                      wifi.connected ? "true" : "false",
                      wifi.ssid,
@@ -368,8 +327,7 @@ static esp_err_t handle_status(httpd_req_t *req)
                      backend_url,
                      backend_ok ? "true" : "false",
                      radio.cs_level,
-                     radio.sync_mode,
-                    wl_json);
+                     radio.sync_mode);
     if (n < 0 || n >= (int)sizeof(json))
     {
         return httpd_resp_send_500(req);
@@ -499,56 +457,6 @@ static esp_err_t handle_radio(httpd_req_t *req)
     return send_ok(req);
 }
 
-static esp_err_t handle_wl_add(httpd_req_t *req)
-{
-    char query[128] = {0};
-    char manuf_s[8] = {0};
-    char id_s[16] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK)
-    {
-        httpd_query_key_value(query, "manuf", manuf_s, sizeof(manuf_s));
-        httpd_query_key_value(query, "id", id_s, sizeof(id_s));
-    }
-    if (manuf_s[0] == '\0' || strlen(id_s) != 8)
-    {
-        return send_err(req, "400", "{\"error\":\"invalid manuf/id\"}");
-    }
-    uint16_t manuf = parse_hex16(manuf_s);
-    uint8_t id[4] = {0};
-    for (int i = 0; i < 4; i++)
-    {
-        char byte_s[3] = {id_s[(3 - i) * 2], id_s[(3 - i) * 2 + 1], '\0'};
-        id[i] = (uint8_t)strtoul(byte_s, NULL, 16);
-    }
-    wmbus_whitelist_add(services_whitelist(s_services), manuf, id);
-    return send_ok(req);
-}
-
-static esp_err_t handle_wl_del(httpd_req_t *req)
-{
-    char query[128] = {0};
-    char manuf_s[8] = {0};
-    char id_s[16] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK)
-    {
-        httpd_query_key_value(query, "manuf", manuf_s, sizeof(manuf_s));
-        httpd_query_key_value(query, "id", id_s, sizeof(id_s));
-    }
-    if (manuf_s[0] == '\0' || strlen(id_s) != 8)
-    {
-        return send_err(req, "400", "{\"error\":\"invalid manuf/id\"}");
-    }
-    uint16_t manuf = parse_hex16(manuf_s);
-    uint8_t id[4] = {0};
-    for (int i = 0; i < 4; i++)
-    {
-        char byte_s[3] = {id_s[(3 - i) * 2], id_s[(3 - i) * 2 + 1], '\0'};
-        id[i] = (uint8_t)strtoul(byte_s, NULL, 16);
-    }
-    wmbus_whitelist_remove(services_whitelist(s_services), manuf, id);
-    return send_ok(req);
-}
-
 static esp_err_t handle_packets_stream(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
@@ -632,8 +540,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    "\"ell_cc\":%s,\"ell_acc\":%s,\"ell_ext\":%s,"
                                    "\"afl_tag\":%s,\"afl_afll\":%s,\"afl_mcl\":%s,\"afl_offset\":%" PRIu16 ",\"afl_payload_len\":%" PRIu16 ","
                                    "\"raw_hex\":%s,"
-                                   "\"rssi\":%.1f,\"payload_len\":%" PRIu32 ","
-                                   "\"whitelisted\":%s}",
+                                   "\"rssi\":%.1f,\"payload_len\":%" PRIu32 "}",
                                    (i == 0) ? "" : ",",
                                    p->frame.dll.gateway,
                                    p->frame.dll.manuf,
@@ -664,8 +571,7 @@ static esp_err_t handle_packets_stream(httpd_req_t *req)
                                    p->frame.afl.afl.payload_len,
                                    raw_hex,
                                    p->rssi,
-                                   p->payload_len,
-                                   p->whitelisted ? "true" : "false");
+                                   p->payload_len);
             if (written < 0)
             {
                 continue;
@@ -692,8 +598,6 @@ static const httpd_uri_t URI_WIFI = {.uri = "/api/wifi", .method = HTTP_POST, .h
 static const httpd_uri_t URI_HOST = {.uri = "/api/hostname", .method = HTTP_POST, .handler = handle_hostname};
 static const httpd_uri_t URI_AP = {.uri = "/api/ap", .method = HTTP_POST, .handler = handle_ap};
 static const httpd_uri_t URI_RADIO = {.uri = "/api/radio", .method = HTTP_POST, .handler = handle_radio};
-static const httpd_uri_t URI_WL_ADD = {.uri = "/api/whitelist/add", .method = HTTP_POST, .handler = handle_wl_add};
-static const httpd_uri_t URI_WL_DEL = {.uri = "/api/whitelist/del", .method = HTTP_POST, .handler = handle_wl_del};
 static const httpd_uri_t URI_PKTS = {.uri = "/api/packets", .method = HTTP_GET, .handler = handle_packets_stream};
 static const httpd_uri_t URI_STATIC_ICON = {.uri = "/static/icons/*", .method = HTTP_GET, .handler = handle_static_icon};
 static const httpd_uri_t URI_STATIC_JS = {.uri = "/static/app.js", .method = HTTP_GET, .handler = handle_static_js};
@@ -747,8 +651,6 @@ esp_err_t http_server_start(services_state_t *svc)
     httpd_register_uri_handler(s_server, &URI_HOST);
     httpd_register_uri_handler(s_server, &URI_AP);
     httpd_register_uri_handler(s_server, &URI_RADIO);
-    httpd_register_uri_handler(s_server, &URI_WL_ADD);
-    httpd_register_uri_handler(s_server, &URI_WL_DEL);
     httpd_register_uri_handler(s_server, &URI_PKTS);
     httpd_register_uri_handler(s_server, &URI_STATIC_JS);
     httpd_register_uri_handler(s_server, &URI_STATIC_CSS);

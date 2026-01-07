@@ -4,7 +4,7 @@ Lightweight OMS/W-MBus gateway using ESP-IDF 5.5.x on ESP32-C3 with a CC1101 sub
 
 ### Status
 - RF receive path operational; CC1101 SPI/interrupts stable.
-- Work-in-progress web UI for Wi-Fi onboarding and packet/whitelist handling.
+- Work-in-progress web UI for Wi-Fi onboarding, radio presets, and packet monitor.
 - Backend pipeline (FastAPI → MQTT + InfluxDB) planned; see dev notes for details.
 
 ### Quick build/flash
@@ -31,9 +31,9 @@ Adjust serial port as needed. Use `idf.py erase-flash` if NVS/config needs reset
 ### Components (main/)
 - `app/`:
   - `runtime.*`: init + RX loop wiring, registers packet sinks.
-  - `services.*`: Facade for persisted config (backend URL, Wi-Fi creds/hostname, radio CS/sync, whitelist).
+  - `services.*`: Facade for persisted config (backend URL, Wi-Fi creds/hostname, radio CS/sync).
   - `net/`: Wi-Fi helpers (STA/AP + hostname) and backend URL + JSON forwarder.
-  - `wmbus/`: packet router (observer) and NVS whitelist CRUD.
+  - `wmbus/`: packet router (observer) and layered frame parsing.
   - `radio/`: persisted CS threshold + sync mode presets for CC1101.
   - `storage.*`: small NVS helpers.
 - `radio/`: CC1101 HAL, register presets, and RX pipeline glue to bring raw sub-GHz frames into the system.

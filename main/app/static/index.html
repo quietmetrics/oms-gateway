@@ -39,15 +39,6 @@
           </div>
         </div>
       </a>
-      <a class="status-card" id="card-whitelist" href="#whitelist">
-        <div class="card-row">
-          <span class="icon" id="icon-whitelist" data-icon="shield"></span>
-          <div>
-            <p class="label">Whitelist</p>
-            <p class="value" id="card-whitelist-sub">0 entries</p>
-          </div>
-        </div>
-      </a>
       <a class="status-card" id="card-monitor" href="#monitor">
         <div class="card-row">
           <span class="icon" id="icon-monitor" data-icon="sensors"></span>
@@ -120,22 +111,6 @@
       </section>
       <section class="card">
         <div class="card-head">
-          <h2>Whitelist</h2>
-          <button id="btn-whitelist-collapse" class="collapse-btn" aria-label="Toggle Whitelist" aria-expanded="true"
-            onclick="toggleCard('whitelist-body','btn-whitelist-collapse')">▾</button>
-        </div>
-        <div class="card-body" id="whitelist-body">
-          <label>Manufacturer (hex LE)</label><input id="wl-manuf" placeholder="36F5" />
-          <label style="margin-top:8px;">ID (8 hex, LSB first)</label><input id="wl-id" placeholder="60931101" />
-          <button class="primary" style="margin-top:12px;" onclick="addWhitelist()">Add</button>
-          <div style="margin-top:12px;">
-            <p class="section-title">Entries</p>
-            <div id="wl-list" class="list"></div>
-          </div>
-        </div>
-      </section>
-      <section class="card">
-        <div class="card-head">
           <h2>Radio</h2>
           <button id="btn-radio-collapse" class="collapse-btn" aria-label="Toggle Radio" aria-expanded="true"
             onclick="toggleCard('radio-body','btn-radio-collapse')">▾</button>
@@ -182,7 +157,6 @@
               <th>RSSI</th>
               <th>Len</th>
               <th>Enc</th>
-              <th>Whitelisted</th>
             </tr>
           </thead>
           <tbody id="pkt-body"></tbody>

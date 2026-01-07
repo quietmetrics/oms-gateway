@@ -247,23 +247,6 @@ function toast(msg,type="info"){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-const isHex = (str,len) => new RegExp(`^[0-9a-fA-F]{${len}}$`).test(str||'');
-
-function renderWhitelist(entries){
-  const box=document.getElementById('wl-list');
-  box.innerHTML='';
-  if(!entries||!entries.length){
-    box.innerHTML='<div class="list-item"><span class="muted">No entries</span></div>';
-    return;
-  }
-  entries.forEach(e=>{
-    const div=document.createElement('div');
-    div.className='list-item';
-    div.innerHTML=`<span class="tag">${e.manuf} / ${e.id}</span><button class="icon-btn icon-trash" onclick="delWhitelist('${e.manuf}','${e.id}')"></button>`;
-    box.appendChild(div);
-  });
-}
-
 function toggleCard(bodyId, btnId){
   const body=document.getElementById(bodyId);
   if(!body) return;
@@ -322,8 +305,7 @@ function renderPackets(list){
       <td class="mono">${p.version??''}</td>
       <td class="mono">${(p.rssi??0).toFixed(1)} dBm</td>
       <td class="mono">${p.payload_len??0}</td>
-      <td class="mono" title="${enc.hint}">${enc.label}</td>
-      <td><span class="pill tiny ${p.whitelisted?'ok':'error'}">${p.whitelisted?'Yes':'No'}</span></td>`;
+      <td class="mono" title="${enc.hint}">${enc.label}</td>`;
     tr.onclick=()=>showPacketModal(p);
     tbody.appendChild(tr);
   });
@@ -452,7 +434,6 @@ function showPacketModal(p){
   addRow(metaLayer,'Security', enc.label, enc.hint);
   addRow(metaLayer,'Security mode', p.sec_mode, secModeLabel(p.sec_mode));
   addRow(metaLayer,'Encrypted bytes', clean(p.sec_len), 'Estimated encrypted length');
-  addRow(metaLayer,'Whitelisted', p.whitelisted?'Yes':'No', 'Matched whitelist');
 
   const layerHtml = layers
     .filter(l=>l.rows.length)
@@ -528,11 +509,7 @@ function fillStatus(data){
   setBadge('status-wifi','status-wifi-value',data.wifi.connected?`Connected (${data.wifi.ip})`:'Not connected',data.wifi.connected?'ok':'warn');
   setBadge('status-radio','status-radio-value',`CS ${data.radio.cs_level} · Sync ${data.radio.sync_mode}`,'ok');
   updateBackendIndicators(data.backend.url,data.backend.reachable);
-  const wlEntries = (data.whitelist && Array.isArray(data.whitelist.entries)) ? data.whitelist.entries : [];
-  renderWhitelist(wlEntries);
-  const wlCount = wlEntries.length;
   setCard('card-wifi',data.wifi.connected?'ok':'warn',data.wifi.connected?`STA ${data.wifi.ssid}`:'AP Mode','wifi');
-  setCard('card-whitelist',wlCount>0?'info':'warn',wlCount>0?`${wlCount} entries`:'No entries','shield');
 }
 
 async function loadStatus(){
@@ -603,24 +580,6 @@ async function saveRadio(){
     loadStatus();
   }catch(e){toast(e.message,'error');}
 }
-async function addWhitelist(){
-  try{
-    const manuf=document.getElementById('wl-manuf').value.trim();
-    const id=document.getElementById('wl-id').value.trim();
-    if(!isHex(manuf,4)||!isHex(id,8)){ toast('Enter manufacturer (4 hex) and ID (8 hex)','error'); return; }
-    await postExpectOk(`/api/whitelist/add?manuf=${qs(manuf)}&id=${qs(id)}`);
-    toast('Whitelist updated','success');
-    loadStatus();
-  }catch(e){toast(e.message,'error');}
-}
-async function delWhitelist(manuf,id){
-  try{
-    await postExpectOk(`/api/whitelist/del?manuf=${qs(manuf)}&id=${qs(id)}`);
-    toast('Removed','success');
-    loadStatus();
-  }catch(e){toast(e.message,'error');}
-}
-
 async function loadPackets(){try{const data=await fetchJSON('/api/packets');if(data.packets){renderPackets(data.packets);} }catch(e){/* ignore */}}
 setInterval(loadPackets,3000);
 setInterval(loadStatus,5000);

@@ -13,7 +13,6 @@
 #include "wmbus/pipeline.h"
 #include "wmbus/packet.h"
 #include "app/wmbus/packet_router.h"
-#include "app/wmbus/whitelist.h"
 #include "app/net/backend.h"
 #include "app/net/wifi.h"
 #include "app/radio/radio_config.h"
@@ -85,16 +84,6 @@ static void forwarder_sink(const WmbusPacketEvent *evt, void *user)
     services_state_t *svc = (services_state_t *)user;
     if (!evt || !evt->frame_info.parsed || !svc)
     {
-        return;
-    }
-
-    const wmbus_whitelist_t *wl = services_whitelist(svc);
-    const bool allowed = wmbus_whitelist_contains(wl, evt->frame_info.header.manufacturer_le, evt->frame_info.header.id);
-    if (!allowed)
-    {
-        ESP_LOGI(TAG, "[FW] drop (not whitelisted) manuf=0x%04X id=%02X%02X%02X%02X",
-                 evt->frame_info.header.manufacturer_le,
-                 evt->frame_info.header.id[3], evt->frame_info.header.id[2], evt->frame_info.header.id[1], evt->frame_info.header.id[0]);
         return;
     }
 

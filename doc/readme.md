@@ -52,7 +52,7 @@ flowchart LR
 > [!NOTE] Current Build Status  
 > - [x] Stable RF receive path (CC1101 HAL, Mode C timing, RSSI/LQI logging)  
 > - [x] Layered parser (DLL → ELL → AFL → TPL) filling `wmbus_parsed_frame_t` for UI/backend  
-> - [x] Web UI for Wi-Fi onboarding, radio presets, whitelist, backend probe, live monitor  
+> - [x] Web UI for Wi-Fi onboarding, radio presets, backend probe, live monitor  
 > - [x] FastAPI backend stub ready for MQTT/InfluxDB forwarding  
 > - [x] Active-low LED HAL for Wi-Fi/payload feedback on GPIO8  
 > - [ ] Backend decryption + Application Layer parsing  
@@ -73,6 +73,19 @@ The implementation focuses on:
 
 The gateway extracts the structure and metadata of these layers so that the
 backend can apply decryption and application‑specific parsing.
+
+### 2.3 Application Payload Strategy
+
+OMS meters embed their readings in CI-dependent payloads (M‑Bus DIF/VIF trains,
+DLMS/COSEM APDUs, SML frames, service protocols, etc.). Parsing those streams
+requires a large, meter-specific knowledge base (storage slots, quantities,
+descriptors). Instead of duplicating projects such as
+[`wmbusmeters`](../EXAMPLE_WMBUSMASTER/wmbusmeters) on the ESP32 (which would
+exceed the available flash/RAM and be hard to keep up to date), the firmware
+currently forwards the entire logical frame to the backend/Web UI. The monitor
+UI now exposes a raw-hex copy button so external tools can ingest exactly what
+the gateway received. Full decoding is therefore expected to happen off-device
+where mature, easily updateable drivers already exist.
 
 ---
 
@@ -292,7 +305,6 @@ The top bar shows:
 * Network status (Access Point mode or Station mode, Received Signal Strength
   Indicator (RSSI), Internet Protocol (IP) address).
 * Backend connectivity (reachable or not reachable).
-* Whitelist summary.
 * Number of recently received frames.
 
 ### 8.2 Configuration Sections
@@ -301,7 +313,6 @@ The top bar shows:
 | ------- | ------- |
 | **Network** | Configure Wi‑Fi STA/AP credentials, hostname, and IP variables. |
 | **Backend** | Set HTTP/MQTT endpoints, run reachability probe, and view status. |
-| **Whitelist** | Manage manufacturer/ID allow-list for forwarding decisions. |
 | **Radio** | Adjust CC1101 CS thresholds, sync correlation, and monitor live stats. |
 
 ### 8.3 Packet Monitor and Details
@@ -313,8 +324,7 @@ The Packet Monitor shows for each received frame:
 * Control field, Communication Identification field, manufacturer code, meter
   identification, version and device type.
 * Radio meta data such as Received Signal Strength Indicator and frame length.
-* A hint whether the payload is encrypted and whether the frame matches the
-  whitelist.
+* A hint whether the payload is encrypted.
 
 A details dialog displays one card per layer (Data Link Layer, Transport
 Layer, Extended Link Layer, Application Frame Layer and general metadata). Only
@@ -337,7 +347,7 @@ structure, addresses and radio quality.
 | Stable SPI comms | Logic analyzer traces confirm reliable transfers/interrupts. |
 | Live RF reception | Real OMS traffic decoded in-city with RSSI/LQI logged. |
 | Layered decoding | PHY → DLL/ELL → AFL/TPL → metadata pipeline implemented. |
-| Web interface | Handles Wi‑Fi/backend/radio/whitelist configuration + monitor. |
+| Web interface | Handles Wi‑Fi/backend/radio configuration + monitor. |
 
 ### 9.2 Next Steps
 
