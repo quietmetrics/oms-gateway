@@ -5,6 +5,12 @@
 > and the main architectural ideas, from the meter in the field up to the
 > dashboard.
 
+> [!IMPORTANT]
+> Repository structure update: this repo now focuses solely on the ESP-IDF
+> firmware. The FastAPI backend lives in a dedicated repository
+> ([oms-hub](https://github.com/quietmetrics/oms-hub)), ensuring both codebases can evolve
+> independently while keeping their documentation close to the relevant code.
+
 > [!TIP]
 > Need a layer-by-layer breakdown of the OMS stack? See `doc/OMS_PROTOCOL_STACK.md`
 > for a companion guide that mirrors OMS Volume 2 and references the codebase.

@@ -1,11 +1,13 @@
-## OMS Hub (ESP32-C3 + CC1101)
+## OMS Gateway (ESP32-C3 + CC1101)
 
 Lightweight OMS/W-MBus gateway using ESP-IDF 5.5.x on ESP32-C3 with a CC1101 sub-GHz transceiver. Wi-Fi provides a path to configure the device and forward decoded frames.
+
+> **Note:** This repository now hosts the firmware only. The FastAPI backend lives in its own repository (link to be added once published) so the gateway firmware can evolve independently.
 
 ### Status
 - RF receive path operational; CC1101 SPI/interrupts stable.
 - Work-in-progress web UI for Wi-Fi onboarding, radio presets, and packet monitor.
-- Backend pipeline (FastAPI → MQTT + InfluxDB) planned; see dev notes for details.
+- Backend pipeline (FastAPI → MQTT + InfluxDB) continues in the standalone backend repository (see dev notes for the link).
 
 ### Quick build/flash
 Run from repo root with ESP-IDF environment sourced:
