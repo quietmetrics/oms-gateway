@@ -217,55 +217,60 @@ radio‑frequency clean layout.
 
 ---
 
-## 7. Firmware and Protocol Handling
+## 7. Gateway Firmware and Data Flow
 
-### 7.1 General Processing Chain
+### 7.1 End-to-End Data Flow
 
-The firmware follows a **layered decoding approach** for OMS Wireless
-Meter‑Bus frames. The idea is to move step by step from the radio signal to a
-structured description that can be stored or further processed.
+The former firmware-only decoding overview has been broadened into the complete
+data journey: from RF capture on the gateway through backend processing to
+storage and analytics. Each area owns a distinct responsibility so firmware,
+backend, storage, and visualization can evolve independently while keeping the
+hand-offs explicit.
 
 ```mermaid
-flowchart TD
-  RF[Radio signal from meter]
-  BYTES[Bytes after demodulation and error checks]
-  LINK[Data link layer header and meter address]
-  SEC[Transport and security related headers]
-  APP[Application payload bytes]
-  OUT[Metadata and payload for backend and web interface]
-
-  RF --> BYTES --> LINK --> SEC --> APP --> OUT
+flowchart LR
+  GATEWAY[<b>1. Gateway</b><br>ESP32-C3 + CC1101 firmware] -->|Wi-Fi / REST| HUB[<b>2. Hub Backend</b><br>FastAPI + wmbusmeters]
+  HUB -->|MQTT| STORE[<b>3. Storage</b><br>Telegraf + InfluxDB]
+  HUB -->|MQTT| PROCESS_A[<b>4.1 Real-time MQTT consumers</b>]
+  STORE -->|DB| PROCESS_B[<b>4.2 Historical dashboards & analytics</b>]
 ```
 
-Short description of each step:
+1. **Gateway (Firmware)**
+   * CC1101 + ESP32-C3 capture the RF signal (OMS Mode C), perform demodulation,
+     whitening removal, 3-of-6 decoding, CRC verification, and frame boundary
+     detection.
+   * The firmware assembles a structured frame description: PHY stats (RSSI/LQI),
+     DLL addresses, TPL/ELL security fields, AFL offsets, and the encrypted
+     Application payload bytes. It does **not** decrypt or interpret the payload.
+   * Frames and metadata are exposed to the Web UI for live monitoring and
+     forwarded to the backend via Wi-Fi using the REST endpoint.
 
-1. **Physical Layer (PHY)**
-   The radio front end demodulates the signal and performs basic checks such as
-   error detection. The result is a clean byte buffer.
+2. **Hub (Backend)**
+   * A dedicated FastAPI service (leveraging `wmbusmeters` tooling) receives frames
+     from the gateway, runs security profile checks, performs AES decryption,
+     validates MICs, and decodes the Application payload into typed fields
+     (e.g., DIF/VIF values).
+   * Parsed readings, diagnostic data, and events are published on MQTT topics so
+     downstream services can subscribe without tight coupling to the API; this
+     MQTT output is what feeds the storage layer.
 
-2. **Data Link Layer (DLL)**
-   The firmware reads the Data Link Layer header, including length, control
-   field, Communication Identification (CI) field, manufacturer, meter
-   identification, version and device type.
+3. **Storage**
+   * Telegraf subscribes to the backend MQTT topics, normalizes the decoded data, and
+     writes time-series metrics plus tags (meter ID, location, type) into
+     InfluxDB.
+   * Retention policies keep historical data accessible for trend analysis while
+     bounding storage usage.
 
-3. **Transport Layer (TPL) and Extended Link Layer (ELL)**
-   Depending on the Communication Identification field, the firmware identifies
-   whether a Transport Layer header or an Extended Link Layer header is
-   present. These layers contain access numbers, status information and
-   security related configuration bits.
-
-4. **Application Frame Layer (AFL)**
-   When an Application Frame Layer is present, the firmware locates the
-   encrypted part of the frame and records its position and length.
-
-5. **Application Layer (APL)**
-   The Application Layer payload is kept as a sequence of bytes. No
-   device‑specific field parsing is done on the gateway.
-
-6. **Output to backend and Web UI**
-   The gateway forwards the raw bytes, the encrypted payload, and all metadata
-   (such as meter address and signal quality) to the backend and exposes them
-   in the Web UI.
+4. **Processing & Visualization**
+   * This stage splits into fast reactions on MQTT events and deep dives on the
+     stored history so operational alerts and long-term analytics stay decoupled.
+   1. **4.1 Real-Time MQTT Consumers** – Automation services or lightweight workers
+      subscribe directly to the hub’s MQTT topics for immediate actions (alerts,
+      actuator commands, anomaly triggers) without waiting for storage.
+   2. **4.2 Historical Dashboards & Analytics** – Grafana, notebooks, or
+      data-science jobs query InfluxDB (optionally blending cached MQTT snapshots)
+      to build dashboards, reports, batch analytics, or export data to billing/ERP
+      systems without touching the gateway firmware.
 
 ### 7.2 Role of Encryption
 
@@ -290,8 +295,7 @@ The OMS / Wireless M‑Bus stack inside this repository closely mirrors Volume�
 2. 📶 **Link / Extended Link Layer** – `main/wmbus/pipeline.c` verifies C/L-fields, addresses (LLA + ELLA), hop bits and synchronous timing, handing off clean payloads plus RSSI/LQI.
 3. 🧷 **Authentication & Fragmentation Layer (AFL)** – Fragment headers, MACs and Ki-flags are parsed so Security Profiles B–D can be validated even if payload stays encrypted.
 4. 📬 **Transport Layer (TPL)** – CI-field, Access Number, Status bits and Configuration Field are decoded and surfaced to the UI/backend, enabling command workflows and Application Error reporting.
-5. 📦 **Application Protocols** – Current firmware focuses on forwarding M‑Bus payloads verbatim. The OMS Data Point List (Annex B) and descriptors are documented in `doc/OMS_PROTOCOL_STACK.md` for future interpreters.
-6. 🔐 **Security Profiles** – The stack tracks which profile a frame uses (A/B/C/D) so backend services know whether to expect AES-CBC, CCM, or TLS key material before decryption.
+5. 📦 **Application Protocols (backend)** – The firmware forwards logical frames verbatim; decoding DIF/VIF trains, DLMS, or SML payloads now happens in the FastAPI/wmbusmeters backend using [wmbusmeters](https://github.com/wmbusmeters/wmbusmeters).
 
 For a detailed walkthrough of each layer, message type, and how the code maps to OMS Volume 2 see **`doc/OMS_PROTOCOL_STACK.md`**.
 
