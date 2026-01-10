@@ -219,11 +219,6 @@ static void http_pkt_sink(const WmbusPacketEvent *evt, void *user)
     http_server_record_packet(evt);
 }
 
-static uint16_t parse_hex16(const char *s)
-{
-    return (uint16_t)strtoul(s, NULL, 16);
-}
-
 static void url_decode_inplace(char *s)
 {
     if (!s)
@@ -396,23 +391,6 @@ static esp_err_t handle_wifi(httpd_req_t *req)
         return send_err(req, "400", "{\"error\":\"ssid required\"}");
     }
     services_set_wifi_credentials(s_services, ssid, pass);
-    return send_ok(req);
-}
-
-static esp_err_t handle_hostname(httpd_req_t *req)
-{
-    char query[128] = {0};
-    char name[APP_HOSTNAME_MAX] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK)
-    {
-        httpd_query_key_value(query, "name", name, sizeof(name));
-    }
-    url_decode_inplace(name);
-    if (name[0] == '\0')
-    {
-        return send_err(req, "400", "{\"error\":\"name required\"}");
-    }
-    services_set_hostname(s_services, name);
     return send_ok(req);
 }
 
@@ -595,7 +573,6 @@ static const httpd_uri_t URI_STATUS = {.uri = "/api/status", .method = HTTP_GET,
 static const httpd_uri_t URI_BACKEND = {.uri = "/api/backend", .method = HTTP_POST, .handler = handle_backend};
 static const httpd_uri_t URI_BACKEND_TEST = {.uri = "/api/backend/test", .method = HTTP_GET, .handler = handle_backend_test};
 static const httpd_uri_t URI_WIFI = {.uri = "/api/wifi", .method = HTTP_POST, .handler = handle_wifi};
-static const httpd_uri_t URI_HOST = {.uri = "/api/hostname", .method = HTTP_POST, .handler = handle_hostname};
 static const httpd_uri_t URI_AP = {.uri = "/api/ap", .method = HTTP_POST, .handler = handle_ap};
 static const httpd_uri_t URI_RADIO = {.uri = "/api/radio", .method = HTTP_POST, .handler = handle_radio};
 static const httpd_uri_t URI_PKTS = {.uri = "/api/packets", .method = HTTP_GET, .handler = handle_packets_stream};
@@ -648,7 +625,6 @@ esp_err_t http_server_start(services_state_t *svc)
     httpd_register_uri_handler(s_server, &URI_BACKEND);
     httpd_register_uri_handler(s_server, &URI_BACKEND_TEST);
     httpd_register_uri_handler(s_server, &URI_WIFI);
-    httpd_register_uri_handler(s_server, &URI_HOST);
     httpd_register_uri_handler(s_server, &URI_AP);
     httpd_register_uri_handler(s_server, &URI_RADIO);
     httpd_register_uri_handler(s_server, &URI_PKTS);

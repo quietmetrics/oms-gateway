@@ -1,9 +1,6 @@
 #include "radio/radio_rx.h"
 
-#include "esp_log.h"
 #include "radio/cc1101_regs.h"
-
-static const char *TAG = "radio_rx";
 
 esp_err_t radio_rx_configure_tmode(cc1101_hal_t *dev)
 {
