@@ -8,7 +8,7 @@
 > [!IMPORTANT]
 > Repository structure update: this repo now focuses solely on the ESP-IDF
 > firmware. The FastAPI backend lives in a dedicated repository
-> ([oms-hub](https://github.com/quietmetrics/oms-hub)), ensuring both codebases can evolve
+> ([oms-bridge](https://gitBridge.com/quietmetrics/oms-bridge)), ensuring both codebases can evolve
 > independently while keeping their documentation close to the relevant code.
 
 > [!TIP]
@@ -229,9 +229,9 @@ hand-offs explicit.
 
 ```mermaid
 flowchart LR
-  GATEWAY[<b>1. Gateway</b><br>ESP32-C3 + CC1101 firmware] -->|Wi-Fi / REST| HUB[<b>2. Hub Backend</b><br>FastAPI + wmbusmeters]
-  HUB -->|MQTT| STORE[<b>3. Storage</b><br>Telegraf + InfluxDB]
-  HUB -->|MQTT| PROCESS_A[<b>4.1 Real-time MQTT consumers</b>]
+  GATEWAY[<b>1. Gateway</b><br>ESP32-C3 + CC1101 firmware] -->|Wi-Fi / REST| Bridge[<b>2. Bridge Backend</b><br>FastAPI + wmbusmeters]
+  Bridge -->|MQTT| STORE[<b>3. Storage</b><br>Telegraf + InfluxDB]
+  Bridge -->|MQTT| PROCESS_A[<b>4.1 Real-time MQTT consumers</b>]
   STORE -->|DB| PROCESS_B[<b>4.2 Historical dashboards & analytics</b>]
 ```
 
@@ -245,7 +245,7 @@ flowchart LR
    * Frames and metadata are exposed to the Web UI for live monitoring and
      forwarded to the backend via Wi-Fi using the REST endpoint.
 
-2. **Hub (Backend)**
+2. **Bridge (Backend)**
    * A dedicated FastAPI service (leveraging `wmbusmeters` tooling) receives frames
      from the gateway, runs security profile checks, performs AES decryption,
      validates MICs, and decodes the Application payload into typed fields
@@ -265,7 +265,7 @@ flowchart LR
    * This stage splits into fast reactions on MQTT events and deep dives on the
      stored history so operational alerts and long-term analytics stay decoupled.
    1. **4.1 Real-Time MQTT Consumers** – Automation services or lightweight workers
-      subscribe directly to the hub’s MQTT topics for immediate actions (alerts,
+      subscribe directly to the Bridge’s MQTT topics for immediate actions (alerts,
       actuator commands, anomaly triggers) without waiting for storage.
    2. **4.2 Historical Dashboards & Analytics** – Grafana, notebooks, or
       data-science jobs query InfluxDB (optionally blending cached MQTT snapshots)
@@ -295,7 +295,7 @@ The OMS / Wireless M‑Bus stack inside this repository closely mirrors Volume�
 2. 📶 **Link / Extended Link Layer** – `main/wmbus/pipeline.c` verifies C/L-fields, addresses (LLA + ELLA), hop bits and synchronous timing, handing off clean payloads plus RSSI/LQI.
 3. 🧷 **Authentication & Fragmentation Layer (AFL)** – Fragment headers, MACs and Ki-flags are parsed so Security Profiles B–D can be validated even if payload stays encrypted.
 4. 📬 **Transport Layer (TPL)** – CI-field, Access Number, Status bits and Configuration Field are decoded and surfaced to the UI/backend, enabling command workflows and Application Error reporting.
-5. 📦 **Application Protocols (backend)** – The firmware forwards logical frames verbatim; decoding DIF/VIF trains, DLMS, or SML payloads now happens in the FastAPI/wmbusmeters backend using [wmbusmeters](https://github.com/wmbusmeters/wmbusmeters).
+5. 📦 **Application Protocols (backend)** – The firmware forwards logical frames verbatim; decoding DIF/VIF trains, DLMS, or SML payloads now happens in the FastAPI/wmbusmeters backend using [wmbusmeters](https://gitBridge.com/wmbusmeters/wmbusmeters).
 
 For a detailed walkthrough of each layer, message type, and how the code maps to OMS Volume 2 see **`doc/OMS_PROTOCOL_STACK.md`**.
 
@@ -340,7 +340,8 @@ A details dialog displays one card per layer (Data Link Layer, Transport
 Layer, Extended Link Layer, Application Frame Layer and general metadata). Only
 layers that exist in the concrete frame are shown.
 
-![](img/webui/ui_packet_details.png)
+![](img/webui/ui_packet_details_1.png)
+![](img/webui/ui_packet_details_2.png)
 
 The Web UI does **not** display decrypted measurement values. It focuses on
 structure, addresses and radio quality.
