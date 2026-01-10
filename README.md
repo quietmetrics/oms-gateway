@@ -32,6 +32,7 @@ flowchart LR
 - RF bytes are 3-of-6 coded on air; the firmware decodes and validates CRC16 blocks.
 - The logical frame is CRC-free and starts at L; logical length = L+1, payload_len = L-10.
 - The gateway forwards logical frames and metadata; decryption and application parsing happen in the backend.
+- Parsing of decoded meter data is handled by [Lobaro](https://confluence.lobaro.com/display/PUB/wMbus+Parser), as shown in the system overview.
 - The Web UI exposes live radio stats, frame metadata, and raw logical hex for external tools.
 
 For a layer-by-layer breakdown of the OMS stack and code references see `doc/OMS_PROTOCOL_STACK.md`.
