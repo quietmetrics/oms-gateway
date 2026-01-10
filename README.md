@@ -1,16 +1,15 @@
 ## OMS Gateway (ESP32-C3 + CC1101)
 
-Lightweight OMS/W-MBus gateway firmware for ESP-IDF 5.5.x on ESP32-C3 with a CC1101 sub-GHz transceiver. Wi-Fi provides a path to configure the device and forward frames.
-
-### Key Concepts
-- RF bytes are 3-of-6 coded on air; the firmware decodes and validates CRC16 blocks.
-- The logical frame is CRC-free and starts at L; logical length = L+1, payload_len = L-10.
-- The gateway forwards logical frames and metadata; decryption and application parsing happen in the backend.
-- The Web UI exposes live radio stats, frame metadata, and raw logical hex for external tools.
+This project is the firmware for an OMS/W‑MBus gateway running on ESP32‑C3 + CC1101.
+It receives OMS telegrams via the CC1101, decodes the link‑layer structure, exposes a Web UI,
+and forwards logical frames with metadata over Wi‑Fi to a backend.
+The system overview below illustrates the data flow from the meter through the gateway to the backend,
+then via MQTT into storage and dashboards/analytics.
 
 ### System Overview
 ```mermaid
 flowchart LR
+  classDef api fill:#d1fae5,stroke:#10b981,stroke-width:1px,color:#065f46;
   METER[OMS meter]
   subgraph GATEWAY_S[<b>Gateway]
     direction LR
@@ -18,20 +17,29 @@ flowchart LR
   end
   METER -->|868MHz| CC1101
   subgraph BRIDGE_S[<b>Bridge]
-  ESP32 -->|Wi-Fi / REST| BRIDGE[Bridge Backend <br>FastAPI + Lobaro]
+    BRIDGE[Bridge Backend <br>FastAPI + Lobaro]
   end
-  BRIDGE -->|MQTT| STORE[Storage Telegraf + InfluxDB]
+  LOBARO[Lobaro API]
+  LOBARO <-->|REST API| BRIDGE
+  class LOBARO api;
+  ESP32 -->|Wi-Fi / REST| BRIDGE
+  BRIDGE -->|MQTT| STORE[Storage <br>Telegraf + InfluxDB]
   BRIDGE -->|MQTT| PROCESS_A[Real-time consumers]
-  STORE -->|DB| PROCESS_B[Dashboards + analytics]
+  STORE -->|DB| PROCESS_B[Dashboards + analytics <br>Grafana]
 ```
 
+### Key Concepts
+- RF bytes are 3-of-6 coded on air; the firmware decodes and validates CRC16 blocks.
+- The logical frame is CRC-free and starts at L; logical length = L+1, payload_len = L-10.
+- The gateway forwards logical frames and metadata; decryption and application parsing happen in the backend.
+- The Web UI exposes live radio stats, frame metadata, and raw logical hex for external tools.
 
 For a layer-by-layer breakdown of the OMS stack and code references see `doc/OMS_PROTOCOL_STACK.md`.
 
 ### Protocol Layers
-| Protocol layers |
-| --- |
-| ![OMS protocol layers](doc/img/OMS-Layers.png) |
+| Protocol layers                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------- |
+| ![OMS protocol layers](doc/img/OMS-Layers.png)                                                                                                |
 | Diagram of the OMS stack we parse: PHY through DLL/ELL/TPL/AFL to APL, highlighting what the firmware extracts and what the backend finishes. |
 
 ### Encryption and Payload Strategy
@@ -42,42 +50,42 @@ For a layer-by-layer breakdown of the OMS stack and code references see `doc/OMS
 ### Web UI
 Single-page UI for configuration and live monitoring.
 
-| Web UI |
-| --- |
-| ![Web UI](doc/img/webui/ui.png) |
+| Web UI                                                                                                 |
+| ------------------------------------------------------------------------------------------------------ |
+| ![Web UI](doc/img/webui/ui.png)                                                                        |
 | Main Web UI showing status cards, network/backend/radio controls, and quick device health at a glance. |
 
-| Packet Monitor |
-| --- |
-| ![Packet Monitor](doc/img/webui/ui_packet_monitor.png) |
+| Packet Monitor                                                                                           |
+| -------------------------------------------------------------------------------------------------------- |
+| ![Packet Monitor](doc/img/webui/ui_packet_monitor.png)                                                   |
 | Packet Monitor table with live frames, metadata, and quick indicators for encryption and signal quality. |
 
-| Packet Details (Layers) |
-| --- |
-| ![Packet Details](doc/img/webui/ui_packet_details_1.png) |
+| Packet Details (Layers)                                                               |
+| ------------------------------------------------------------------------------------- |
+| ![Packet Details](doc/img/webui/ui_packet_details_1.png)                              |
 | Packet details dialog showing per-layer cards and parsed fields for a selected frame. |
 
-| Packet Details (Raw) |
-| --- |
-| ![Packet Details](doc/img/webui/ui_packet_details_2.png) |
+| Packet Details (Raw)                                                           |
+| ------------------------------------------------------------------------------ |
+| ![Packet Details](doc/img/webui/ui_packet_details_2.png)                       |
 | Raw logical frame view with copy option for external tooling and verification. |
 
 ### Hardware
 - ESP32-C3 (SuperMini form factor) + CC1101 868/886 MHz module.
 - CC1101 breakout pinouts vary; use the TI datasheet as the wiring reference.
 
-| Prototype hardware |
-| --- |
-| ![ESP32-C3 and CC1101](doc/img/ESP32C3_CC1101.jpg) |
+| Prototype hardware                                                                        |
+| ----------------------------------------------------------------------------------------- |
+| ![ESP32-C3 and CC1101](doc/img/ESP32C3_CC1101.jpg)                                        |
 | Prototype hardware: ESP32-C3 board paired with a CC1101 module for sub-GHz OMS reception. |
 
-| Connected prototype |
-| --- |
+| Connected prototype                                                    |
+| ---------------------------------------------------------------------- |
 | ![ESP32-C3 and CC1101 connected](doc/img/ESP32C3_CC1101_connected.jpg) |
 | Wiring between the ESP32-C3 and CC1101 during bring-up and RF testing. |
 
-| Enclosure open                                      | Enclosure with lid                            |
-| --------------------------------------------------- | --------------------------------------------- |
+| Enclosure open                                          | Enclosure with lid                                     |
+| ------------------------------------------------------- | ------------------------------------------------------ |
 | ![Enclosure open](doc/img/ESP32C3_CC1101_installed.jpg) | ![Enclosure with lid](doc/img/ESP32C3_CC1101_Back.png) |
 
 ### Requests (HTTP)
