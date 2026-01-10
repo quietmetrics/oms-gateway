@@ -1,6 +1,17 @@
 const qs=(k)=>encodeURIComponent(k);
 let currentSsid='';
 let currentMode='client';
+const themeToggle = document.getElementById('theme-toggle');
+const THEME_KEY = 'oms-theme';
+
+const applyTheme = (theme) => {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = nextTheme;
+  if (themeToggle) {
+    themeToggle.textContent = nextTheme === 'dark' ? 'Light' : 'Dark';
+  }
+  localStorage.setItem(THEME_KEY, nextTheme);
+};
 
 // Manufacturer code (EN 13757-3) -> 3-letter string
 function manufCodeToString(code){
@@ -215,9 +226,11 @@ function setCard(id,state,subtitle,iconText){
   const icon=document.getElementById(`icon-${id.split('card-')[1]}`);
   if(icon){
     icon.dataset.icon=iconText||'';
-    const svg=icon.querySelector('svg');
-    if(svg && iconText){
-      svg.setAttribute('data-icon', iconText);
+    if(iconText){
+      const url=`/static/icons/${iconText}.svg`;
+      icon.style.maskImage=`url(${url})`;
+      icon.style.webkitMaskImage=`url(${url})`;
+      icon.style.backgroundColor='currentColor';
     }
   }
 }
@@ -534,15 +547,6 @@ async function saveNetwork(){
     loadStatus();
   }catch(e){toast(e.message,'error');}
 }
-async function saveHostname(){
-  try{
-    const hostname=document.getElementById('hostname').value.trim();
-    if(!hostname){ toast('Hostname cannot be empty','error'); return; }
-    await postExpectOk(`/api/hostname?name=${qs(hostname)}`);
-    toast('Hostname saved','success');
-    loadStatus();
-  }catch(e){toast(e.message,'error');}
-}
 async function saveBackend(){
   try{
     const url=document.getElementById('backend-url').value.trim();
@@ -583,6 +587,14 @@ async function saveRadio(){
 async function loadPackets(){try{const data=await fetchJSON('/api/packets');if(data.packets){renderPackets(data.packets);} }catch(e){/* ignore */}}
 setInterval(loadPackets,3000);
 setInterval(loadStatus,5000);
+
+if (themeToggle) {
+  themeToggle.addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme || 'light';
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+}
+applyTheme(localStorage.getItem(THEME_KEY) || 'light');
 
 loadStatus();
 loadPackets();

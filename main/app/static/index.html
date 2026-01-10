@@ -16,6 +16,7 @@
     </div>
     <div class="top-right">
       <span class="pill" id="hostname-pill">hostname</span>
+      <button class="pill" id="theme-toggle" type="button">Dark</button>
     </div>
   </header>
   <div id="toast" class="toast"></div>
@@ -57,10 +58,7 @@
             onclick="toggleCard('network-body','btn-network-collapse')">▾</button>
         </div>
         <div class="card-body" id="network-body">
-          <label>Hostname</label><input id="hostname" placeholder="oms-gateway" />
-          <div style="margin-top:8px;">
-            <button class="primary" onclick="saveHostname()" type="button">Save Hostname</button>
-          </div>
+          <label>Hostname</label><input id="hostname" placeholder="oms-gateway" readonly />
           <div class="segmented">
             <button id="btn-client" class="seg-btn active" onclick="showMode('client')">Client</button>
             <button id="btn-ap" class="seg-btn" onclick="showMode('ap')">Access Point</button>
